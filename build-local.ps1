@@ -69,13 +69,13 @@ try {
     }
 
     Write-Host '[4/4] Erstelle ReelShift.exe ...' -ForegroundColor Cyan
-    $args = @('-m', 'PyInstaller', '--noconfirm', '--onefile', '--windowed',
+    $pyInstallerArgs = @('-m', 'PyInstaller', '--noconfirm', '--onefile', '--windowed',
               '--name', 'ReelShift',
               '--distpath', (Join-Path $root 'dist'),
               '--workpath', (Join-Path $root 'build\pyinstaller'),
               '--specpath', (Join-Path $root 'build'),
               (Join-Path $root 'run.py'))
-    Run-Python $args
+    Run-Python $pyInstallerArgs
 
     if (-not (Test-Path -LiteralPath $exe)) { throw 'Build meldete Erfolg, aber die EXE fehlt.' }
     $mb = [math]::Round((Get-Item -LiteralPath $exe).Length / 1MB, 1)
