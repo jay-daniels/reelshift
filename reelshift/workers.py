@@ -11,7 +11,7 @@ from pathlib import Path
 import psutil
 from PySide6.QtCore import QObject, Signal, Slot
 
-from .engine import VideoItem, executable, ffmpeg_command, ffmpeg_seconds, inspect_video, popen_flags, scan_paths
+from .engine import VideoItem, executable, ffmpeg_command, ffmpeg_seconds, inspect_video, popen_flags, scan_paths, probe_av_sync, av_sync_report
 from .metadata import EpisodeLookup
 from .naming import output_name
 
@@ -23,27 +23,34 @@ class ScanWorker(QObject):
     finished = Signal()
 
     def __init__(self, folder: Path, destination: Path, pattern: str, recursive: bool,
-                 online: bool, tmdb_token: str, ffmpeg_override: str) -> None:
+                 online: bool, tmdb_token: str, ffmpeg_override: str, rename_only: bool = False) -> None:
         super().__init__()
         self.folder, self.destination = folder, destination
         self.pattern, self.recursive = pattern, recursive
         self.online, self.tmdb_token, self.ffmpeg_override = online, tmdb_token, ffmpeg_override
+        self.rename_only = rename_only
 
     @Slot()
     def run(self) -> None:
         try:
             if not self.folder.is_dir():
                 raise ValueError("Quellordner nicht gefunden")
-            if self.folder.resolve().is_relative_to(self.destination.resolve()):
+            if not self.rename_only and self.folder.resolve().is_relative_to(self.destination.resolve()):
                 raise ValueError("Zielordner darf nicht die Quelle selbst oder deren übergeordneter Ordner sein")
-            ffprobe = executable("ffprobe", self.ffmpeg_override)
-            files = scan_paths(self.folder, self.pattern, self.recursive, self.destination)
+            ffprobe = executable("ffprobe", self.ffmpeg_override) if not self.rename_only else ""
+            files = scan_paths(self.folder, self.pattern, self.recursive,
+                               None if self.rename_only else self.destination)
             resolver = EpisodeLookup(self.tmdb_token)
             items: list[VideoItem] = []
             for i, path in enumerate(files, 1):
                 self.progress.emit(i, len(files), path.name)
                 try:
-                    item = inspect_video(path, ffprobe)
+                    if self.rename_only:
+                        from .naming import parse_name
+                        parsed = parse_name(path)
+                        item = VideoItem(path, output_name(parsed), "–", 0, parsed)
+                    else:
+                        item = inspect_video(path, ffprobe)
                     if self.online and item.parsed.season is not None and not item.parsed.title:
                         found = resolver.find(item.parsed.series, item.parsed.season, item.parsed.episode)
                         if found:
@@ -108,6 +115,7 @@ class EncodeWorker(QObject):
         done = failed = skipped = 0
         try:
             ffmpeg = executable("ffmpeg", self.ffmpeg_override)
+            ffprobe = executable("ffprobe", self.ffmpeg_override)
             self.destination.mkdir(parents=True, exist_ok=True)
             for index, item in enumerate(self.items):
                 if self.cancelled.is_set():
@@ -169,6 +177,16 @@ class EncodeWorker(QObject):
                         break
                     if exit_code or not temp.exists() or temp.stat().st_size == 0:
                         raise RuntimeError(" | ".join(errors[-3:]) or f"FFmpeg Exit-Code {exit_code}")
+                    # Detect changed A/V starts before publishing the output.
+                    original_sync = probe_av_sync(item.source, ffprobe)
+                    result_sync = probe_av_sync(temp, ffprobe)
+                    sync_ok, sync_details = av_sync_report(original_sync, result_sync)
+                    self.log.emit("SYNC  " + item.source.name + ": " + sync_details)
+                    if not sync_ok:
+                        raise RuntimeError("A/V-Syncprüfung fehlgeschlagen: " + sync_details)
+                    if any(v is not None and abs(v) > 0.25 for v in original_sync.audio_video_deltas):
+                        self.log.emit("HINWEIS: Die Quelle hat bereits einen Audio/Video-Startversatz. "
+                                      "ReelShift korrigiert den Ton nicht blind.")
                     # Windows rename never replaces an existing destination; guard again.
                     if target.exists():
                         raise FileExistsError("Zieldatei wurde während der Konvertierung erstellt")
@@ -188,6 +206,75 @@ class EncodeWorker(QObject):
         except Exception as exc:
             self.log.emit("FATAL: " + str(exc))
             failed += 1
+        finally:
+            self.complete.emit(done, failed, skipped)
+            self.finished.emit()
+
+
+class RenameWorker(QObject):
+    """Rename files in-place without decoding, remuxing or rewriting contents."""
+    file_state = Signal(int, str)
+    file_progress = Signal(int, float, str, str)
+    log = Signal(str)
+    complete = Signal(int, int, int)
+    finished = Signal()
+
+    def __init__(self, items: list[VideoItem]) -> None:
+        super().__init__()
+        self.items = items
+        self.cancelled = threading.Event()
+        self.running = threading.Event()
+        self.running.set()
+
+    def pause(self) -> None:
+        self.running.clear()
+
+    def resume(self) -> None:
+        self.running.set()
+
+    def cancel(self) -> None:
+        self.cancelled.set()
+        self.running.set()
+
+    @Slot()
+    def run(self) -> None:
+        done = failed = skipped = 0
+        try:
+            from .engine import rename_conflicts
+            errors = rename_conflicts(self.items)
+            if errors:
+                self.log.emit("UMBENENNEN ABGEBROCHEN: " + " | ".join(errors[:10]))
+                failed = len(errors)
+                return
+            for index, item in enumerate(self.items):
+                self.running.wait()
+                if self.cancelled.is_set():
+                    break
+                if item.status.startswith("Fehler"):
+                    skipped += 1
+                    continue
+                source = item.source
+                target = source.with_name(item.target_name)
+                if source == target:
+                    skipped += 1
+                    self.file_state.emit(index, "Unverändert")
+                    self.file_progress.emit(index, 100., "–", "00:00")
+                    continue
+                try:
+                    if not source.is_file() or (target.exists() and not source.samefile(target)):
+                        raise FileExistsError("Quelldatei fehlt oder Zieldatei existiert")
+                    source.rename(target)
+                    done += 1
+                    self.file_state.emit(index, "Umbenannt")
+                    self.file_progress.emit(index, 100., "–", "00:00")
+                    self.log.emit(f"RENAME {source.name} -> {target.name}")
+                except OSError as exc:
+                    failed += 1
+                    self.file_state.emit(index, "Fehler")
+                    self.log.emit(f"RENAME FEHLER {source.name}: {exc}")
+        except Exception as exc:
+            failed += 1
+            self.log.emit("UMBENENNEN FEHLGESCHLAGEN: " + str(exc))
         finally:
             self.complete.emit(done, failed, skipped)
             self.finished.emit()
