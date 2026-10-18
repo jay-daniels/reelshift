@@ -315,18 +315,17 @@ class ReelShiftWindow(QMainWindow):
         valid = sum(not x.status.startswith("Fehler") for x in items)
         self.summary.setText(f"{len(items)} MKVs gefunden, {valid} bereit. Zieldateinamen prüfen!")
         self.log_box.appendPlainText(f"Scan beendet: {valid}/{len(items)} Dateien bereit.")
-        self.scanning = False
-        self._set_busy()
+        # Keep the scan locked until its QThread has actually stopped.
 
     def _scan_error(self, message: str) -> None:
-        self.scanning = False
-        self._set_busy()
         self.summary.setText("Scan fehlgeschlagen")
         QMessageBox.warning(self, "Scan fehlgeschlagen", message)
 
     def _scan_cleanup(self) -> None:
         self.scan_thread = None
         self.scan_worker = None
+        self.scanning = False
+        self._set_busy()
 
     def _edited_name(self, cell: QTableWidgetItem) -> None:
         if cell.column() != 2 or self.encoding:
@@ -427,15 +426,16 @@ class ReelShiftWindow(QMainWindow):
             self.summary.setText("Abbruch läuft …")
 
     def _encode_complete(self, done: int, failed: int, skipped: int) -> None:
-        self.encoding = False
-        self.paused = False
-        self._set_busy()
+        # Unlock inputs only when the thread has fully exited.
         self.summary.setText(f"Fertig: {done} erfolgreich, {failed} Fehler, {skipped} übersprungen.")
         self.log_box.appendPlainText(f"BATCH: {done} OK, {failed} Fehler, {skipped} übersprungen.")
 
     def _encode_cleanup(self) -> None:
         self.encode_thread = None
         self.encode_worker = None
+        self.encoding = False
+        self.paused = False
+        self._set_busy()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if (self.scan_thread and self.scan_thread.isRunning()) or (self.encode_thread and self.encode_thread.isRunning()):
