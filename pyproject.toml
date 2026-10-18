@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reelshift"
+version = "0.1.0"
+description = "GPU-accelerated MKV to H.264 batch conversion and TV episode renaming"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["PySide6>=6.7,<7", "psutil>=6.0,<8"]
+
+[project.gui-scripts]
+reelshift = "reelshift.app:main"
+
+[tool.setuptools.packages.find]
+include = ["reelshift*"]
