@@ -6,7 +6,7 @@ ReelShift turns HEVC/H.265 videos into H.264/AVC for older playback devices, cle
 
 ## Features
 
-- Dark-mode PySide6 GUI with editable filename preview, wildcard patterns (`Vikings*;*S01E*.mkv`), recursive search, queue and log.
+- Two modes: encode to new H.264 MKVs **or rename source MKVs in place without FFmpeg**, both with filename preview. Dark-mode PySide6 GUI with wildcard patterns (`Vikings*;*S01E*.mkv`), recursive search, queue and log.
 - NVIDIA NVENC H.264 hardware encoding (great for RTX cards); libx264 CPU alternative; adjustable CQ/CRF quality.
 - FFprobe inspects codecs/duration. Already compatible 8-bit H.264 can be remuxed without video quality loss; all runs produce separate MKV files.
 - FFmpeg `-progress`-based per-file and overall progress, speed and approximate remaining time; pause, resume and cancel.
@@ -57,6 +57,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build-local.ps1 -SkipTests
 Für den Betrieb werden **FFmpeg und FFprobe** separat benötigt (über den `PATH` oder per Auswahl in der GUI). Die EXE enthält die Python-/PySide6-Anwendung, **nicht** die FFmpeg-Binaries. Die EXE wird auf deinem eigenen Rechner erstellt; es wird kein GitHub-Kontingent verbraucht. **Die Originalvideos werden nicht gelöscht.**
 
 Fehlersuche: Wenn Python nicht gefunden wird, `py -3.10 --version` im Terminal prüfen; bei fehlendem FFmpeg `winget install Gyan.FFmpeg` ausführen und die App neu starten.
+
+## Arbeitsmodi
+
+### Konvertieren – neues H.264-MKV
+
+ReelShift schreibt in einen **separaten Zielordner**. Die Originaldateien bleiben erhalten. Der Encoder verwendet für neu encodiertes Video den Präsentationszeitablauf der Quelle, vermeidet H.264-B-Frames am Anfang und verschiebt bei Bedarf die Ausgabestreams gemeinsam auf nichtnegative Zeitstempel. **Nach jedem erfolgreichen FFmpeg-Lauf** vergleicht das Programm Audio- und Video-Startzeitstempel der Quelle und der temporären Ausgabe. Wenn sich ein A/V-Abstand um mehr als 150 ms ändert oder die Prüfwerte nicht verfügbar sind, wird die temporäre Datei verworfen statt als Erfolg veröffentlicht. Das kann keine Abspielprobleme, tatsächliche Lippen-Synchronität oder defekte Quellzeitstempel zuverlässig ausschließen.
+
+**Wichtig:** Ein Fire TV kann auch an Bitrate, Audioformat oder Hardware-Decoding scheitern. Teste jede Änderung erst mit ein bis zwei Folgen. Alte Ausgaben werden nicht automatisch korrigiert; überprüfe und ersetze sie nach Bedarf separat. Überschrieben wird nichts.
+
+### Nur umbenennen – ohne FFmpeg
+
+Im Feld **Arbeitsmodus** „Nur umbenennen (direkt im Quellordner)“ wählen, Quellordner und Wildcards einstellen und **Dateien scannen & Namen prüfen**. Die Vorschau lässt sich manuell anpassen; fehlende Episodentitel können weiterhin über TVmaze/TMDb ergänzt werden. Anschließend **Dateien umbenennen** klicken und die Rückfrage bestätigen.
+
+- Es wird **keine** Mediendatei decodiert, konvertiert, remuxt, kopiert oder gelöscht: Nur der Dateiname **am Originalspeicherort** wird geändert.
+- Zielordner, Encoder und FFmpeg werden nicht gebraucht; sie sind in diesem Modus deaktiviert.
+- Vorher werden Namenskollisionen und bereits vorhandene Dateien einschließlich Windows-typischer Groß-/Kleinschreibungsüberschneidungen geprüft. Bestehende andere Dateien werden nicht überschrieben.
+- Ursprüngliche Dateinamen werden dabei geändert, es gibt noch keine automatische Undo-Funktion. Bei wichtigen Namen zuerst eine Kopie der Dateiliste sichern.
+- Moduswechsel verwirft die alte Vorschau: nach dem Wechsel erneut scannen.
 
 ## Episode data
 
