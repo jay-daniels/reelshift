@@ -34,7 +34,7 @@ try {
                     if ($LASTEXITCODE -ne 0) { continue }
                 }
                 catch { continue }
-                Write-Host "Python Launcher $version: erstelle .venv ..."
+                Write-Host "Python Launcher ${version}: erstelle .venv ..."
                 & py $version -m venv (Join-Path $root '.venv')
                 if ($LASTEXITCODE -ne 0) { throw 'Python konnte keine virtuelle Umgebung anlegen.' }
                 $created = $true
