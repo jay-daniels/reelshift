@@ -37,9 +37,26 @@ becomes
 
 3. Choose input/output folders, optional semicolon-delimited wildcards, scan, **review/edit proposed names** by double-clicking the output filename, and click **Batch starten**.
 
-### Windows .exe
+### Windows .exe – lokal erstellen, ohne GitHub Actions
 
-The [Windows executable workflow](.github/workflows/windows-build.yml) builds `ReelShift.exe` with PyInstaller and uploads it as a GitHub Actions artifact. A built executable does **not** bundle FFmpeg/FFprobe; install them separately or choose their location. GitHub Actions artifacts require GitHub sign-in to download and are not the same as a published Release.
+Es werden **keine GitHub-Actions-Runner** benötigt oder automatisch gestartet.
+
+1. Repository auf deinen Windows-PC klonen oder als ZIP herunterladen und entpacken.
+2. [Python 3.10+](https://www.python.org/downloads/) installieren (am einfachsten Python 3.10/3.12, falls noch nicht vorhanden). Internet wird beim ersten Build für PySide6 und PyInstaller benötigt.
+3. Im Projektordner **`build-local.cmd` doppelklicken**. Das Skript legt `.venv` an, installiert die benötigten Pakete, führt die Unit-Tests aus und baut die EXE.
+4. Nach erfolgreichem Build liegt **`dist\ReelShift.exe`** bereit. Du kannst sie durch Doppelklick starten.
+
+Alternativ aus PowerShell:
+
+```powershell
+.\build-local.cmd
+# Oder direkt, z. B. ohne Unit-Tests:
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build-local.ps1 -SkipTests -OpenOutput
+```
+
+Für den Betrieb werden **FFmpeg und FFprobe** separat benötigt (über den `PATH` oder per Auswahl in der GUI). Die EXE enthält die Python-/PySide6-Anwendung, **nicht** die FFmpeg-Binaries. Die EXE wird auf deinem eigenen Rechner erstellt; es wird kein GitHub-Kontingent verbraucht. **Die Originalvideos werden nicht gelöscht.**
+
+Fehlersuche: Wenn Python nicht gefunden wird, `py -3.10 --version` im Terminal prüfen; bei fehlendem FFmpeg `winget install Gyan.FFmpeg` ausführen und die App neu starten.
 
 ## Episode data
 
