@@ -13,9 +13,9 @@ from PySide6.QtWidgets import (
     QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from .engine import VideoItem, executable
+from .engine import VideoItem, executable, rename_conflicts
 from .naming import safe_filename
-from .workers import EncodeWorker, ScanWorker
+from .workers import EncodeWorker, RenameWorker, ScanWorker
 
 STYLE = """
 QWidget { background: #10151f; color: #e7edf7; font-family: 'Segoe UI'; font-size: 10pt; }
@@ -54,7 +54,7 @@ class ReelShiftWindow(QMainWindow):
         self.scan_thread: QThread | None = None
         self.scan_worker: ScanWorker | None = None
         self.encode_thread: QThread | None = None
-        self.encode_worker: EncodeWorker | None = None
+        self.encode_worker: EncodeWorker | RenameWorker | None = None
         self.encoding = False
         self.scanning = False
         self.paused = False
@@ -89,9 +89,9 @@ class ReelShiftWindow(QMainWindow):
         self.target = QLineEdit()
         self.target.setPlaceholderText("Separater Ausgabeordner (Originale bleiben erhalten)")
         grid.addWidget(self.target, 1, 1)
-        target_browse = QPushButton("Durchsuchen …")
-        target_browse.clicked.connect(self._choose_target)
-        grid.addWidget(target_browse, 1, 2)
+        self.target_browse = QPushButton("Durchsuchen …")
+        self.target_browse.clicked.connect(self._choose_target)
+        grid.addWidget(self.target_browse, 1, 2)
         grid.addWidget(QLabel("Wildcards"), 2, 0)
         self.pattern = QLineEdit("*.mkv")
         self.pattern.setToolTip("Mehrere Muster mit ; trennen, z. B. Vikings*;*S01E*.mkv")
@@ -100,37 +100,44 @@ class ReelShiftWindow(QMainWindow):
         grid.addWidget(self.recursive, 2, 2)
         layout.addWidget(sources)
 
-        options = QGroupBox("02  KONVERTIERUNG UND EPISODENTITEL")
+        options = QGroupBox("02  MODUS, KONVERTIERUNG UND EPISODENTITEL")
         opts = QGridLayout(options)
+        self.mode = QComboBox()
+        self.mode.addItems(["H.264 konvertieren (neue Datei)",
+                            "Nur umbenennen (direkt im Quellordner)"])
+        self.mode.setToolTip("Nur umbenennen: keine Videodaten kopieren oder verändern; Datei wird direkt am ursprünglichen Ort umbenannt.")
+        self.mode.currentIndexChanged.connect(self._mode_changed)
+        opts.addWidget(QLabel("Arbeitsmodus"), 0, 0)
+        opts.addWidget(self.mode, 0, 1, 1, 3)
         self.encoder = QComboBox()
         self.encoder.addItems(["NVIDIA NVENC (GPU)", "libx264 (CPU)"])
         self.quality = QSpinBox()
         self.quality.setRange(16, 32)
         self.quality.setValue(22)
         self.quality.setToolTip("Kleiner = bessere Qualität und größere Datei. 20–23 als Startwert.")
-        opts.addWidget(QLabel("Encoder"), 0, 0)
-        opts.addWidget(self.encoder, 0, 1)
-        opts.addWidget(QLabel("Qualität (CQ/CRF)"), 0, 2)
-        opts.addWidget(self.quality, 0, 3)
+        opts.addWidget(QLabel("Encoder"), 1, 0)
+        opts.addWidget(self.encoder, 1, 1)
+        opts.addWidget(QLabel("Qualität (CQ/CRF)"), 1, 2)
+        opts.addWidget(self.quality, 1, 3)
         self.aac = QCheckBox("Tonspuren in AAC-Stereo umwandeln (sonst Originalton behalten)")
         self.force = QCheckBox("Auch kompatibles H.264 neu codieren")
-        opts.addWidget(self.aac, 1, 0, 1, 2)
-        opts.addWidget(self.force, 1, 2, 1, 2)
+        opts.addWidget(self.aac, 2, 0, 1, 2)
+        opts.addWidget(self.force, 2, 2, 1, 2)
         self.lookup = QCheckBox("Fehlende Episodentitel online ergänzen")
         self.lookup.setChecked(True)
-        opts.addWidget(self.lookup, 2, 0, 1, 2)
+        opts.addWidget(self.lookup, 3, 0, 1, 2)
         self.token = QLineEdit(os.environ.get("TMDB_READ_ACCESS_TOKEN") or os.environ.get("TMDB_API_KEY", ""))
         self.token.setEchoMode(QLineEdit.EchoMode.Password)
         self.token.setPlaceholderText("Optional: TMDb API-Key / Read Access Token für deutsche Titel")
         self.token.setToolTip("Nicht gespeichert. Ohne Schlüssel: TVmaze (meist englische Titel).")
-        opts.addWidget(self.token, 2, 2, 1, 2)
-        opts.addWidget(QLabel("FFmpeg (optional)"), 3, 0)
+        opts.addWidget(self.token, 3, 2, 1, 2)
+        opts.addWidget(QLabel("FFmpeg (optional)"), 4, 0)
         self.ffmpeg_path = QLineEdit()
         self.ffmpeg_path.setPlaceholderText("Leer = PATH; alternativ ffmpeg.exe wählen (ffprobe.exe daneben)")
-        opts.addWidget(self.ffmpeg_path, 3, 1, 1, 2)
-        ff_browse = QPushButton("ffmpeg.exe …")
-        ff_browse.clicked.connect(self._choose_ffmpeg)
-        opts.addWidget(ff_browse, 3, 3)
+        opts.addWidget(self.ffmpeg_path, 4, 1, 1, 2)
+        self.ff_browse = QPushButton("ffmpeg.exe …")
+        self.ff_browse.clicked.connect(self._choose_ffmpeg)
+        opts.addWidget(self.ff_browse, 4, 3)
         layout.addWidget(options)
 
         actions = QHBoxLayout()
@@ -205,6 +212,8 @@ class ReelShiftWindow(QMainWindow):
                 widget.setChecked(str(val).lower() in ("true", "1"))
         self.quality.setValue(int(self.settings.value("quality", 22)))
         self.encoder.setCurrentIndex(int(self.settings.value("encoder", 0)))
+        self.mode.setCurrentIndex(int(self.settings.value("mode", 0)))
+        self._mode_changed()
 
     def _save(self) -> None:
         for name, widget in (("source", self.source), ("target", self.target),
@@ -215,6 +224,24 @@ class ReelShiftWindow(QMainWindow):
             self.settings.setValue(name, widget.isChecked())
         self.settings.setValue("quality", self.quality.value())
         self.settings.setValue("encoder", self.encoder.currentIndex())
+        self.settings.setValue("mode", self.mode.currentIndex())
+
+    def _rename_only(self) -> bool:
+        return self.mode.currentIndex() == 1
+
+    def _mode_changed(self, *args) -> None:
+        rename_only = self._rename_only()
+        self.target.setPlaceholderText(
+            "Nicht verwendet – Dateien werden direkt am ursprünglichen Ort umbenannt"
+            if rename_only else "Separater Ausgabeordner (Originale bleiben erhalten)")
+        self.start_btn.setText("▶  Dateien umbenennen" if rename_only else "▶  Batch starten")
+        self.queue_label.setText(
+            "03  NAMENSVORSCHAU — Nach Prüfung werden die Dateien direkt am Quellort umbenannt"
+            if rename_only else
+            "03  WARTESCHLANGE — Erst scannen, dann Ausgabenamen bei Bedarf per Doppelklick ändern")
+        if rename_only and not self.scanning and not self.encoding:
+            self.summary.setText("Umbenennen ohne FFmpeg: Original-MKV-Inhalt bleibt unverändert.")
+        self._set_busy()
 
     def _choose_source(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Quellordner auswählen", self.source.text())
@@ -244,6 +271,8 @@ class ReelShiftWindow(QMainWindow):
             self.target.setText(str(dst))
         else:
             dst = Path(dst_text).expanduser()
+        if self._rename_only():
+            return src, src
         if src.resolve().is_relative_to(dst.resolve()):
             raise ValueError("Zielordner darf weder die Quelle noch deren übergeordneter Ordner sein.")
         return src, dst
@@ -255,18 +284,23 @@ class ReelShiftWindow(QMainWindow):
         self.cancel_btn.setEnabled(self.encoding)
         if not self.encoding:
             self.pause_btn.setText("⏸  Pause")
-        for widget in (self.source, self.target, self.pattern, self.recursive,
-                       self.ffmpeg_path, self.encoder, self.quality, self.aac,
-                       self.force, self.lookup, self.token):
-            widget.setEnabled(not (self.scanning or self.encoding))
+        busy = self.scanning or self.encoding
+        rename_only = self._rename_only()
+        for widget in (self.source, self.pattern, self.recursive, self.lookup,
+                       self.token, self.mode):
+            widget.setEnabled(not busy)
+        for widget in (self.target, self.target_browse, self.ffmpeg_path, self.ff_browse,
+                       self.encoder, self.quality, self.aac, self.force):
+            widget.setEnabled(not busy and not rename_only)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers if self.encoding or self.scanning
                                    else QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.EditKeyPressed)
 
     def start_scan(self) -> None:
         try:
             src, dst = self._paths()
-            executable("ffmpeg", self.ffmpeg_path.text().strip())
-            executable("ffprobe", self.ffmpeg_path.text().strip())
+            if not self._rename_only():
+                executable("ffmpeg", self.ffmpeg_path.text().strip())
+                executable("ffprobe", self.ffmpeg_path.text().strip())
         except (ValueError, FileNotFoundError) as exc:
             QMessageBox.warning(self, "ReelShift", str(exc))
             return
@@ -279,7 +313,8 @@ class ReelShiftWindow(QMainWindow):
         self.log_box.appendPlainText("Scan gestartet …")
         self.scan_thread = QThread(self)
         self.scan_worker = ScanWorker(src, dst, self.pattern.text(), self.recursive.isChecked(),
-                                      self.lookup.isChecked(), self.token.text(), self.ffmpeg_path.text().strip())
+                                      self.lookup.isChecked(), self.token.text(), self.ffmpeg_path.text().strip(),
+                                      self._rename_only())
         self.scan_worker.moveToThread(self.scan_thread)
         self.scan_thread.started.connect(self.scan_worker.run)
         self.scan_worker.progress.connect(self._scan_progress)
@@ -313,7 +348,8 @@ class ReelShiftWindow(QMainWindow):
             self.table.setCellWidget(row, 4, bar)
         self.table.blockSignals(False)
         valid = sum(not x.status.startswith("Fehler") for x in items)
-        self.summary.setText(f"{len(items)} MKVs gefunden, {valid} bereit. Zieldateinamen prüfen!")
+        self.summary.setText(f"{len(items)} MKVs gefunden, {valid} bereit. Namen prüfen!" +
+                             (" Nur Umbenennung, keine Konvertierung." if self._rename_only() else ""))
         self.log_box.appendPlainText(f"Scan beendet: {valid}/{len(items)} Dateien bereit.")
         # Keep the scan locked until its QThread has actually stopped.
 
@@ -342,12 +378,36 @@ class ReelShiftWindow(QMainWindow):
             return
         try:
             _, dst = self._paths()
-            executable("ffmpeg", self.ffmpeg_path.text().strip())
-            if dst.exists() and not dst.is_dir():
+            if not self._rename_only():
+                executable("ffmpeg", self.ffmpeg_path.text().strip())
+            if not self._rename_only() and dst.exists() and not dst.is_dir():
                 raise ValueError("Zielpfad ist kein Verzeichnis.")
         except (ValueError, FileNotFoundError) as exc:
             QMessageBox.warning(self, "ReelShift", str(exc))
             return
+        if self._rename_only():
+            errors = rename_conflicts(self.items)
+            if errors:
+                QMessageBox.warning(self, "Umbenennen – Namenskonflikt",
+                                    "\n".join(errors[:8]) +
+                                    (f"\n… und {len(errors)-8} weitere" if len(errors) > 8 else ""))
+                return
+            changes = sum(item.source.name != item.target_name
+                          for item in self.items if not item.status.startswith("Fehler"))
+            if not changes:
+                QMessageBox.information(self, "ReelShift", "Keine Dateinamen müssen geändert werden.")
+                return
+            if QMessageBox.question(self, "Dateien direkt umbenennen",
+                 f"{changes} MKV-Datei(en) werden am Originalspeicherort umbenannt.\n"
+                 "Die Videodaten werden nicht verändert, die alten Dateinamen aber ersetzt.\n"
+                 "Mit der Vorschau einverstanden?") != QMessageBox.StandardButton.Yes:
+                return
+        else:
+            self._start_encode_validation(dst)
+            return
+        self._run_batch(dst)
+
+    def _start_encode_validation(self, dst: Path) -> None:
         targets = [item.target_name.casefold() for item in self.items if not item.status.startswith("Fehler")]
         if len(targets) != len(set(targets)):
             QMessageBox.warning(self, "Namenskonflikt", "Zwei oder mehr Dateien haben denselben Zielnamen. Bitte in der Tabelle korrigieren.")
@@ -358,6 +418,9 @@ class ReelShiftWindow(QMainWindow):
         if any(item.hdr for item in self.items):
             if QMessageBox.warning(self, "HDR-Video erkannt", "Mindestens eine Datei ist HDR (PQ/HLG). ReelShift 0.1 wandelt die HDR-Farben NICHT korrekt nach SDR um. Diese Dateien können ausgewaschen aussehen. Trotzdem starten?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
                 return
+        self._run_batch(dst)
+
+    def _run_batch(self, dst: Path) -> None:
         self.progresses = [0.] * len(self.items)
         for row, item in enumerate(self.items):
             item.progress = 0
@@ -370,9 +433,12 @@ class ReelShiftWindow(QMainWindow):
         self.paused = False
         self._set_busy()
         self.encode_thread = QThread(self)
-        self.encode_worker = EncodeWorker(self.items, dst, self.ffmpeg_path.text().strip(),
-                                          self.encoder.currentIndex() == 0, self.quality.value(),
-                                          self.aac.isChecked(), self.force.isChecked())
+        if self._rename_only():
+            self.encode_worker = RenameWorker(self.items)
+        else:
+            self.encode_worker = EncodeWorker(self.items, dst, self.ffmpeg_path.text().strip(),
+                                              self.encoder.currentIndex() == 0, self.quality.value(),
+                                              self.aac.isChecked(), self.force.isChecked())
         self.encode_worker.moveToThread(self.encode_thread)
         self.encode_thread.started.connect(self.encode_worker.run)
         self.encode_worker.file_state.connect(self._write_state)
@@ -389,8 +455,8 @@ class ReelShiftWindow(QMainWindow):
         if 0 <= row < len(self.items):
             old = self.items[row]
             self.table.item(row, 5).setText(state + (" • " + old.note if old.note else ""))
-            if state in ("Fertig", "Fehler", "Abgebrochen") or state.startswith("Übersprungen"):
-                self.progresses[row] = 100. if state == "Fertig" or state.startswith("Übersprungen") else self.progresses[row]
+            if state in ("Fertig", "Umbenannt", "Unverändert", "Fehler", "Abgebrochen") or state.startswith("Übersprungen"):
+                self.progresses[row] = 100. if state in ("Fertig", "Umbenannt", "Unverändert") or state.startswith("Übersprungen") else self.progresses[row]
                 self._update_total()
 
     def _file_progress(self, row: int, percent: float, speed: str, eta: str) -> None:
