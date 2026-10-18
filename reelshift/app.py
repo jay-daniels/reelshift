@@ -231,6 +231,12 @@ class ReelShiftWindow(QMainWindow):
 
     def _mode_changed(self, *args) -> None:
         rename_only = self._rename_only()
+        # A scanned preview cannot be reused across different working modes.
+        if self.items and not self.scanning and not self.encoding:
+            self.items.clear()
+            self.progresses.clear()
+            self.table.setRowCount(0)
+            self.total.setValue(0)
         self.target.setPlaceholderText(
             "Nicht verwendet – Dateien werden direkt am ursprünglichen Ort umbenannt"
             if rename_only else "Separater Ausgabeordner (Originale bleiben erhalten)")
