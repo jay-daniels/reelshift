@@ -55,12 +55,13 @@ class MetadataLookupTests(unittest.TestCase):
             self.assertEqual(resolver.find("Vikings", 2, 2)[0], "Invasion")
             self.assertEqual(get.call_count, 2)
 
-    def test_german_without_token_shows_clear_error_and_does_not_replace_with_english(self):
+    def test_german_without_token_uses_offline_vikings_titles(self):
         with patch("reelshift.metadata._get") as network:
             resolver = EpisodeLookup(language="de")
-            self.assertIsNone(resolver.find("Vikings", 2, 1))
-            self.assertIn("TMDb-API-Key fehlt", resolver.last_diagnostic)
-            self.assertIsNone(resolver.find("Vikings", 2, 2))
+            self.assertEqual(resolver.find("Vikings", 2, 1),
+                             ("Bruderkrieg", "Wikipedia DE (Offline-Katalog)"))
+            self.assertEqual(resolver.find("Vikings", 2, 8)[0], "Der Knochenlose")
+            self.assertEqual(resolver.find("Vikings", 6, 20)[0], "Die Neue Welt")
             network.assert_not_called()
 
     def test_german_tmdb_returns_translated_episodes_in_single_season_request(self):
@@ -77,6 +78,7 @@ class MetadataLookupTests(unittest.TestCase):
             raise AssertionError(url)
         with patch("reelshift.metadata._get", side_effect=api) as get:
             resolver = EpisodeLookup("test-token", language="de")
+            resolver.wikipedia.find = lambda *args: None  # Exercise optional TMDb fallback.
             self.assertEqual(resolver.find("Vikings", 2, 1),
                              ("Bruderkrieg", "TMDb (de-DE, sofern übersetzt)"))
             self.assertEqual(resolver.find("Vikings", 2, 2)[0], "Invasion")
@@ -84,6 +86,7 @@ class MetadataLookupTests(unittest.TestCase):
 
     def test_german_tmdb_failure_does_not_silently_fallback_to_english(self):
         resolver = EpisodeLookup("test-token", language="de")
+        resolver.wikipedia.find = lambda *args: None
         with patch("reelshift.metadata._get", side_effect=URLError("offline")) as get:
             self.assertIsNone(resolver.find("Vikings", 2, 1))
             self.assertIn("TMDb: Netzwerk", resolver.last_diagnostic)
