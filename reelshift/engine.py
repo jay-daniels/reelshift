@@ -83,12 +83,14 @@ def ffmpeg_command(ffmpeg: str, item: VideoItem, temp: Path, use_gpu: bool, qual
     if force or needs_video_encode(item):
         if use_gpu:
             command += ["-c:v:0", "h264_nvenc", "-preset", "p5", "-rc", "vbr",
-                        "-cq", str(quality), "-b:v", "0", "-pix_fmt", "yuv420p"]
+                        "-cq", str(quality), "-b:v", "0", "-pix_fmt", "yuv420p",
+                        "-forced-idr:v:0", "1"]
         else:
             command += ["-c:v:0", "libx264", "-preset", "medium", "-crf", str(quality),
                         "-pix_fmt", "yuv420p"]
         # Keep source frame timestamps and avoid H.264 B-frame startup reorder latency.
-        command += ["-fps_mode:v:0", "passthrough", "-bf:v:0", "0", "-profile:v:0", "high"]
+        command += ["-fps_mode:v:0", "passthrough", "-bf:v:0", "0", "-profile:v:0", "high",
+                    "-g:v:0", "120", "-force_key_frames:v:0", "0"]
     if aac_stereo:
         command += ["-c:a", "aac", "-b:a", "192k", "-ac", "2"]
     # Apply the same timestamp shift to all mapped streams.
