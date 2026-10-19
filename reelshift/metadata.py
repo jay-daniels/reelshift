@@ -8,6 +8,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from .wikipedia import WikipediaGermanLookup
+
 
 def _get(url: str, params: dict, token: str = "") -> object:
     qs = urlencode(params)
@@ -48,6 +50,7 @@ class EpisodeLookup:
             raise ValueError("Nicht unterstützte Titelsprache: " + language)
         self.language = language
         self.tmdb_token = tmdb_token.strip()
+        self.wikipedia = WikipediaGermanLookup()
         self.cache: dict[tuple[str, int, int], tuple[str, str] | None] = {}
         self.tvmaze_shows: dict[str, int | None] = {}
         self.tmdb_shows: dict[str, int | None] = {}
@@ -82,26 +85,22 @@ class EpisodeLookup:
             self.last_diagnostic = self.diagnostics.get(key, "")
             return self.cache[key]
 
-        if self.language == "de" and not self.tmdb_token:
-            self.last_diagnostic = (
-                "Deutsch: TMDb-API-Key fehlt. Einen kostenlosen Schlüssel unter "
-                "themoviedb.org/settings/api erstellen oder Titelsprache Englisch wählen."
-            )
-            self.cache[key] = None
-            self.diagnostics[key] = self.last_diagnostic
-            return None
-
         result = None
         error = ""
         if self.language == "de":
-            if self.tmdb_error:
-                error = self.tmdb_error
-            else:
-                try:
-                    result = self._tmdb(series, season, episode)
-                except (HTTPError, URLError, TimeoutError, ValueError, KeyError, TypeError) as exc:
-                    self.tmdb_error = self._error_message("TMDb", exc)
+            # Wikipedia first: German episode titles without signup or API key.
+            result = self.wikipedia.find(series, season, episode)
+            if not result and self.tmdb_token:
+                if self.tmdb_error:
                     error = self.tmdb_error
+                else:
+                    try:
+                        result = self._tmdb(series, season, episode)
+                    except (HTTPError, URLError, TimeoutError, ValueError, KeyError, TypeError) as exc:
+                        self.tmdb_error = self._error_message("TMDb", exc)
+                        error = self.tmdb_error
+            if not result:
+                error = " | ".join(p for p in (self.wikipedia.last_error, error) if p)
         else:
             if self.tvmaze_error:
                 error = self.tvmaze_error
