@@ -98,7 +98,7 @@ class EpisodeTableReader(HTMLParser):
             self.header_confirmed = True
             return
         # No guesswork on title-less tables; the column order must be known.
-        if not self.header_confirmed or not all(k == "td" for k, _ in cells[:3]):
+        if not self.header_confirmed:
             return
         if not (re.fullmatch(r"\d{1,3}", cells[0][1])
                 and re.fullmatch(r"\d{1,3}", cells[1][1])):
