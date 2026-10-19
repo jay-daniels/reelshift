@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from .engine import VideoItem, executable, rename_conflicts
-from .naming import safe_filename
+from .naming import safe_filename, output_name
 from .workers import EncodeWorker, RenameWorker, ScanWorker
 
 STYLE = """
@@ -356,13 +356,16 @@ class ReelShiftWindow(QMainWindow):
             self.table.setCellWidget(row, 4, bar)
         self.table.blockSignals(False)
         valid = sum(not x.status.startswith("Fehler") for x in items)
-        titled = sum(bool(item.parsed and item.parsed.title) or
-                    "TVmaze" in item.note or "TMDb" in item.note
-                    for item in items if not item.status.startswith("Fehler"))
-        untitled = sum(item.parsed is not None and item.parsed.season is not None
-                      and not item.parsed.title and
-                      "TVmaze" not in item.note and "TMDb" not in item.note
-                      for item in items if not item.status.startswith("Fehler"))
+        titled = sum(
+            item.parsed is not None and item.parsed.season is not None and
+            (bool(item.parsed.title) or item.target_name != output_name(item.parsed))
+            for item in items if not item.status.startswith("Fehler")
+        )
+        untitled = sum(
+            item.parsed is not None and item.parsed.season is not None and
+            not item.parsed.title and item.target_name == output_name(item.parsed)
+            for item in items if not item.status.startswith("Fehler")
+        )
         online_message = ""
         if self.lookup.isChecked():
             online_message = f" Online-Titel: {titled}, nicht ergänzt: {untitled}."
