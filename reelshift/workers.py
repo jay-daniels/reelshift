@@ -18,6 +18,7 @@ from .naming import output_name
 
 class ScanWorker(QObject):
     progress = Signal(int, int, str)
+    notice = Signal(str)
     complete = Signal(object)
     error = Signal(str)
     finished = Signal()
@@ -56,6 +57,11 @@ class ScanWorker(QObject):
                         if found:
                             item.target_name = output_name(item.parsed, found[0])
                             item.note = (item.note + " | " if item.note else "") + found[1]
+                        elif resolver.last_diagnostic:
+                            detail = "Episodensuche: " + resolver.last_diagnostic
+                            item.note = (item.note + " | " if item.note else "") + detail
+                            if not any(existing.note == item.note for existing in items):
+                                self.notice.emit(f"ONLINE {item.parsed.series}: {resolver.last_diagnostic}")
                     items.append(item)
                 except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
                     items.append(VideoItem(path, path.name, "?", 0, None, status="Fehler: " + str(exc)[:140]))  # type: ignore[arg-type]
