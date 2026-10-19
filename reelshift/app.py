@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, QThread, QUrl
-from PySide6.QtGui import QCloseEvent, QFont, QDesktopServices
+from PySide6.QtGui import QCloseEvent, QFont, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
@@ -19,14 +20,14 @@ from .workers import EncodeWorker, RenameWorker, ScanWorker
 
 STYLE = """
 QWidget { background: #10151f; color: #e7edf7; font-family: 'Segoe UI'; font-size: 10pt; }
-QGroupBox { border: 1px solid #283446; border-radius: 10px; margin-top: 13px;
-            padding: 17px 10px 10px; font-weight: 600; background: #171f2d; }
+QGroupBox { border: 1px solid #283446; border-radius: 9px; margin-top: 11px;
+            padding: 11px 8px 7px; font-weight: 600; background: #171f2d; }
 QGroupBox::title { subcontrol-origin: margin; left: 14px; padding: 0 6px; color: #9cb9e9; }
 QLineEdit, QSpinBox, QComboBox, QPlainTextEdit, QTableWidget {
-    border: 1px solid #35455b; border-radius: 6px; padding: 7px;
+    border: 1px solid #35455b; border-radius: 6px; padding: 5px;
     background: #0c121b; selection-background-color: #2855ad; }
 QLineEdit:focus, QSpinBox:focus { border-color: #5c92ea; }
-QPushButton { background: #273954; padding: 9px 15px; border: 1px solid #3c5270;
+QPushButton { background: #273954; padding: 7px 12px; border: 1px solid #3c5270;
               border-radius: 7px; font-weight: 600; }
 QPushButton:hover { background: #345077; }
 QPushButton:disabled { color: #6b798c; background: #1a2533; border-color: #273343; }
@@ -34,7 +35,7 @@ QPushButton#primary { background: #2864dc; border-color: #4481ef; color: white; 
 QPushButton#primary:hover { background: #3f7be7; }
 QPushButton#danger { background: #5d303c; border-color: #9a4654; }
 QProgressBar { border: 1px solid #35455b; border-radius: 5px; text-align: center;
-               background: #0c121b; min-height: 17px; }
+               background: #0c121b; min-height: 14px; }
 QProgressBar::chunk { background: #397de8; border-radius: 4px; }
 QHeaderView::section { background: #213044; padding: 7px; color: #cbd8f2; border: 0; }
 QTableWidget { gridline-color: #233044; alternate-background-color: #171e29; }
@@ -48,7 +49,12 @@ class ReelShiftWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("ReelShift — Transcode · Rename · Organize")
-        self.resize(1220, 840)
+        self.resize(1420, 910)
+        self.setMinimumSize(1080, 720)
+        asset_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+        app_icon = asset_root / "assets" / "reelshift.ico"
+        if app_icon.exists():
+            self.setWindowIcon(QIcon(str(app_icon)))
         self.items: list[VideoItem] = []
         self.progresses: list[float] = []
         self.scan_thread: QThread | None = None
@@ -67,10 +73,10 @@ class ReelShiftWindow(QMainWindow):
         root = QWidget()
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setSpacing(7)
         brand = QLabel("REELSHIFT")
-        brand.setStyleSheet("font-size: 23pt; font-weight: 800; color: #73a8ff; letter-spacing: 3px;")
+        brand.setStyleSheet("font-size: 21pt; font-weight: 800; color: #73a8ff; letter-spacing: 3px;")
         tagline = QLabel("Deine MKV-Mediathek. Neu codiert, sauber benannt, bereit für den Fernseher.")
         tagline.setStyleSheet("color: #9bacc5; padding-bottom: 4px;")
         layout.addWidget(brand)
@@ -184,6 +190,9 @@ class ReelShiftWindow(QMainWindow):
         layout.addLayout(actions)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(8)
+        self.splitter = splitter
         queue = QWidget()
         queue_layout = QVBoxLayout(queue)
         queue_layout.setContentsMargins(0, 0, 0, 0)
@@ -193,13 +202,28 @@ class ReelShiftWindow(QMainWindow):
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(["Quelldatei", "Video", "Zieldatei (editierbar)", "Dauer", "Fortschritt", "Status / Metadaten"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setWordWrap(False)
+        self.table.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        self.table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
+        self.table.setVerticalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
+        self.table.verticalHeader().setDefaultSectionSize(26)
+        self.table.setMinimumHeight(270)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().hide()
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        for col in (1, 3, 4):
-            self.table.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        # Every section must be user-resizable. Stretch/ResizeToContents modes
+        # previously made the headers behave as if locked.
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setSectionsMovable(True)
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(60)
+        header.setHighlightSections(False)
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        for column, width in enumerate((280, 80, 335, 78, 100, 340)):
+            header.resizeSection(column, width)
+        self.table.setToolTip("Spaltengrenzen ziehen = Breite ändern. "
+                              "Spaltenkopf ziehen = Reihenfolge ändern. "
+                              "Beides wird beim Schließen gespeichert.")
         self.table.itemChanged.connect(self._edited_name)
         queue_layout.addWidget(self.table)
         splitter.addWidget(queue)
@@ -212,7 +236,12 @@ class ReelShiftWindow(QMainWindow):
         self.log_box.document().setMaximumBlockCount(1200)
         logs_layout.addWidget(self.log_box)
         splitter.addWidget(logs)
-        splitter.setSizes([460, 125])
+        queue.setMinimumHeight(290)
+        logs.setMinimumHeight(85)
+        logs.setMaximumHeight(200)
+        splitter.setStretchFactor(0, 8)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([570, 105])
         layout.addWidget(splitter, 1)
 
         bottom = QHBoxLayout()
@@ -237,6 +266,16 @@ class ReelShiftWindow(QMainWindow):
                 widget.setChecked(str(val).lower() in ("true", "1"))
         self.quality.setValue(int(self.settings.value("quality", 22)))
         self.encoder.setCurrentIndex(int(self.settings.value("encoder", 0)))
+        header_state = self.settings.value("table_header_state")
+        if header_state:
+            self.table.horizontalHeader().restoreState(header_state)
+        splitter_state = self.settings.value("splitter_state")
+        if splitter_state:
+            self.splitter.restoreState(splitter_state)
+        window_size = self.settings.value("window_size")
+        if window_size and hasattr(window_size, "width") and hasattr(window_size, "height"):
+            if 1080 <= window_size.width() <= 5000 and 720 <= window_size.height() <= 3000:
+                self.resize(window_size)
         lang = str(self.settings.value("title_language", "de"))
         idx = self.title_language.findData(lang)
         self.title_language.setCurrentIndex(idx if idx >= 0 else 0)
@@ -254,6 +293,9 @@ class ReelShiftWindow(QMainWindow):
         self.settings.setValue("encoder", self.encoder.currentIndex())
         self.settings.setValue("mode", self.mode.currentIndex())
         self.settings.setValue("title_language", self.title_language.currentData())
+        self.settings.setValue("table_header_state", self.table.horizontalHeader().saveState())
+        self.settings.setValue("splitter_state", self.splitter.saveState())
+        self.settings.setValue("window_size", self.size())
 
     def _episode_settings_changed(self, *args) -> None:
         # Never run a batch with filenames from a previous language or API key.
@@ -395,6 +437,7 @@ class ReelShiftWindow(QMainWindow):
                 cell = QTableWidgetItem(value)
                 if col != 2:
                     cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                cell.setToolTip(value)
                 self.table.setItem(row, col, cell)
             bar = QProgressBar()
             bar.setRange(0, 100)
