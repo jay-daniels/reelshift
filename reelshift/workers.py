@@ -11,7 +11,7 @@ from pathlib import Path
 import psutil
 from PySide6.QtCore import QObject, Signal, Slot
 
-from .engine import VideoItem, executable, ffmpeg_command, ffmpeg_seconds, inspect_video, popen_flags, scan_paths, probe_av_sync, av_sync_report, probe_decode_start, validate_decode_start
+from .engine import VideoItem, executable, ffmpeg_command, ffmpeg_seconds, inspect_video, popen_flags, scan_paths, probe_av_sync, av_sync_report, probe_decode_start, validate_decode_start, probe_video_codec, decode_video_sample
 from .metadata import EpisodeLookup
 from .naming import output_name
 
@@ -201,6 +201,27 @@ class EncodeWorker(QObject):
                     self.log.emit("STARTUP " + item.source.name + ": " + startup_details)
                     if not startup_ok:
                         raise RuntimeError("Videostart-Prüfung fehlgeschlagen: " + startup_details)
+                    # Reject streams that report H.264 but omit essential profile,
+                    # pixel format or dimensions (common when codec initialization fails).
+                    codec_details = probe_video_codec(temp, ffprobe)
+                    if not codec_details.usable_h264:
+                        raise RuntimeError(
+                            "Ausgabe-H.264 nicht vollständig erkennbar: "
+                            f"Profil={codec_details.profile or '?'}, "
+                            f"Pixel={codec_details.pixel_format or '?'}, "
+                            f"Auflösung={codec_details.width}x{codec_details.height}. "
+                            f"FFprobe: {codec_details.probe_warnings[:240]}"
+                        )
+                    decoded = decode_video_sample(temp, ffmpeg)
+                    self.log.emit(
+                        f"DECODE {item.source.name}: erste 12s, "
+                        f"{decoded.frames} Frames, FFmpeg-Exit {decoded.returncode}"
+                    )
+                    if not decoded.passed:
+                        raise RuntimeError(
+                            "Software-Decodierung der ersten 12s fehlgeschlagen: "
+                            + (decoded.errors[-600:] or f"{decoded.frames} Frames")
+                        )
                     # Windows rename never replaces an existing destination; guard again.
                     if target.exists():
                         raise FileExistsError("Zieldatei wurde während der Konvertierung erstellt")
