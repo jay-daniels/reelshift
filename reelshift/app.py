@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -337,8 +338,16 @@ class ReelShiftWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Quellordner auswählen", self.source.text())
         if path:
             self.source.setText(path)
-            if not self.target.text() or not Path(self.target.text()).exists():
-                folder = Path(path)
+            folder = Path(path)
+            target_text = self.target.text().strip()
+            previous_target = Path(target_text) if target_text else None
+            # Keep suggested season destinations in sync on source changes.
+            auto_target = (
+                previous_target is not None and
+                re.fullmatch(r"(?i)(?:season|staffel)\d+_reelshift", previous_target.name) and
+                previous_target.parent == folder.parent
+            )
+            if not target_text or auto_target or not Path(target_text).exists():
                 self.target.setText(str(folder.parent / (folder.name + "_ReelShift")))
 
     def _choose_target(self) -> None:
@@ -363,6 +372,15 @@ class ReelShiftWindow(QMainWindow):
             dst = Path(dst_text).expanduser()
         if self._rename_only():
             return src, src
+        src_season = re.fullmatch(r"(?i)(season|staffel)(\d+)", src.name)
+        dst_season = re.fullmatch(r"(?i)(season|staffel)(\d+)_reelshift", dst.name)
+        if (src_season and dst_season and src.parent.resolve() == dst.parent.resolve()
+                and src_season.group(2) != dst_season.group(2)):
+            raise ValueError(
+                f"Quelle ist {src.name}, Ziel aber {dst.name}. "
+                "Bitte den zur Staffel passenden Ausgabeordner auswählen, "
+                "damit keine Folgen verschiedener Staffeln vermischt werden."
+            )
         if src.resolve().is_relative_to(dst.resolve()):
             raise ValueError("Zielordner darf weder die Quelle noch deren übergeordneter Ordner sein.")
         return src, dst
