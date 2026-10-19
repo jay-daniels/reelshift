@@ -4,8 +4,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt, QThread
-from PySide6.QtGui import QCloseEvent, QFont
+from PySide6.QtCore import QSettings, Qt, QThread, QUrl
+from PySide6.QtGui import QCloseEvent, QFont, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
@@ -123,22 +123,46 @@ class ReelShiftWindow(QMainWindow):
         self.force = QCheckBox("Auch kompatibles H.264 neu codieren")
         opts.addWidget(self.aac, 2, 0, 1, 2)
         opts.addWidget(self.force, 2, 2, 1, 2)
-        self.lookup = QCheckBox("Fehlende Episodentitel online ergänzen (TVmaze: ohne Key)")
+        self.lookup = QCheckBox("Fehlende Episodentitel online ergänzen")
         self.lookup.setChecked(True)
-        self.lookup.setToolTip("Kostenloses TVmaze ohne API-Key: meist englische Titel. Mit TMDb-Key bevorzugt deutsche Titel.")
+        self.lookup.setToolTip("Titelsprache und Datenanbieter in der nächsten Zeile auswählen.")
         opts.addWidget(self.lookup, 3, 0, 1, 2)
-        self.token = QLineEdit(os.environ.get("TMDB_READ_ACCESS_TOKEN") or os.environ.get("TMDB_API_KEY", ""))
+
+        self.title_language = QComboBox()
+        self.title_language.addItem("Deutsch (TMDb-Key erforderlich)", "de")
+        self.title_language.addItem("Englisch (TVmaze, ohne Key)", "en")
+        self.title_language.setToolTip(
+            "Deutsch: TMDb de-DE (übersetzte Titel, falls vorhanden). "
+            "Englisch: kostenloser TVmaze-Katalog ohne Schlüssel. "
+            "Keine stille Übersetzung oder Sprachmischung.")
+        opts.addWidget(QLabel("Titelsprache"), 3, 2)
+        opts.addWidget(self.title_language, 3, 3)
+
+        opts.addWidget(QLabel("TMDb-API-Key"), 4, 0)
+        self.token = QLineEdit(os.environ.get("TMDB_READ_ACCESS_TOKEN") or
+                               os.environ.get("TMDB_API_KEY", ""))
         self.token.setEchoMode(QLineEdit.EchoMode.Password)
-        self.token.setPlaceholderText("Optional: TMDb API-Key / Read Access Token für deutsche Titel")
-        self.token.setToolTip("Nicht gespeichert. Ohne Schlüssel: TVmaze (meist englische Titel).")
-        opts.addWidget(self.token, 3, 2, 1, 2)
-        opts.addWidget(QLabel("FFmpeg (optional)"), 4, 0)
+        self.token.setPlaceholderText("Für Deutsch: API-Key oder Read Access Token eintragen")
+        self.token.setToolTip(
+            "TMDb de-DE: persönlicher kostenloser API-Zugang. "
+            "Token wird nicht in den Programmeinstellungen gespeichert.")
+        opts.addWidget(self.token, 4, 1, 1, 2)
+        self.tmdb_link = QPushButton("API-Key anfordern ↗")
+        self.tmdb_link.setToolTip("TMDb-Kontoeinstellungen im Browser öffnen")
+        self.tmdb_link.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://www.themoviedb.org/settings/api")))
+        opts.addWidget(self.tmdb_link, 4, 3)
+
+        opts.addWidget(QLabel("FFmpeg (optional)"), 5, 0)
         self.ffmpeg_path = QLineEdit()
         self.ffmpeg_path.setPlaceholderText("Leer = PATH; alternativ ffmpeg.exe wählen (ffprobe.exe daneben)")
-        opts.addWidget(self.ffmpeg_path, 4, 1, 1, 2)
+        opts.addWidget(self.ffmpeg_path, 5, 1, 1, 2)
         self.ff_browse = QPushButton("ffmpeg.exe …")
         self.ff_browse.clicked.connect(self._choose_ffmpeg)
-        opts.addWidget(self.ff_browse, 4, 3)
+        opts.addWidget(self.ff_browse, 5, 3)
+        self.title_language.currentIndexChanged.connect(self._episode_settings_changed)
+        self.token.textChanged.connect(self._episode_settings_changed)
+        self.lookup.toggled.connect(self._episode_settings_changed)
         layout.addWidget(options)
 
         actions = QHBoxLayout()
@@ -213,6 +237,9 @@ class ReelShiftWindow(QMainWindow):
                 widget.setChecked(str(val).lower() in ("true", "1"))
         self.quality.setValue(int(self.settings.value("quality", 22)))
         self.encoder.setCurrentIndex(int(self.settings.value("encoder", 0)))
+        lang = str(self.settings.value("title_language", "de"))
+        idx = self.title_language.findData(lang)
+        self.title_language.setCurrentIndex(idx if idx >= 0 else 0)
         self.mode.setCurrentIndex(int(self.settings.value("mode", 0)))
         self._mode_changed()
 
@@ -226,6 +253,17 @@ class ReelShiftWindow(QMainWindow):
         self.settings.setValue("quality", self.quality.value())
         self.settings.setValue("encoder", self.encoder.currentIndex())
         self.settings.setValue("mode", self.mode.currentIndex())
+        self.settings.setValue("title_language", self.title_language.currentData())
+
+    def _episode_settings_changed(self, *args) -> None:
+        # Never run a batch with filenames from a previous language or API key.
+        if not self.scanning and not self.encoding and self.items:
+            self.items.clear()
+            self.progresses.clear()
+            self.table.setRowCount(0)
+            self.total.setValue(0)
+            self.summary.setText("Titelsprache geändert – bitte erneut scannen.")
+            self._set_busy()
 
     def _rename_only(self) -> bool:
         return self.mode.currentIndex() == 1
@@ -294,7 +332,7 @@ class ReelShiftWindow(QMainWindow):
         busy = self.scanning or self.encoding
         rename_only = self._rename_only()
         for widget in (self.source, self.pattern, self.recursive, self.lookup,
-                       self.token, self.mode):
+                       self.token, self.title_language, self.tmdb_link, self.mode):
             widget.setEnabled(not busy)
         for widget in (self.target, self.target_browse, self.ffmpeg_path, self.ff_browse,
                        self.encoder, self.quality, self.aac, self.force):
@@ -318,10 +356,18 @@ class ReelShiftWindow(QMainWindow):
         self.scanning = True
         self._set_busy()
         self.log_box.appendPlainText("Scan gestartet …")
+        if (self.lookup.isChecked() and self.title_language.currentData() == "de"
+                and not self.token.text().strip()):
+            self.log_box.appendPlainText(
+                "ONLINE: Deutsch ausgewählt, aber TMDb-API-Key fehlt. "
+                "Für deutsche Episodentitel einen Key eintragen "
+                "(Schaltfläche 'API-Key anfordern'). "
+                "Es werden KEINE englischen Titel automatisch eingesetzt.")
         self.scan_thread = QThread(self)
         self.scan_worker = ScanWorker(src, dst, self.pattern.text(), self.recursive.isChecked(),
                                       self.lookup.isChecked(), self.token.text(), self.ffmpeg_path.text().strip(),
-                                      self._rename_only())
+                                      self._rename_only(),
+                                      str(self.title_language.currentData()))
         self.scan_worker.moveToThread(self.scan_thread)
         self.scan_thread.started.connect(self.scan_worker.run)
         self.scan_worker.progress.connect(self._scan_progress)
@@ -373,7 +419,7 @@ class ReelShiftWindow(QMainWindow):
                 self.log_box.appendPlainText(
                     f"ONLINE: {untitled} Titel konnten nicht ergänzt werden. "
                     "Siehe Spalte 'Status / Metadaten' für den Grund. "
-                    "TVmaze braucht keinen API-Key, TMDb für deutsche Titel schon.")
+                    "Deutsch: TMDb benötigt einen API-Key; Englisch: TVmaze ist kostenlos.")
         self.summary.setText(f"{len(items)} MKVs gefunden, {valid} bereit. Namen prüfen!" +
                              (" Nur Umbenennung, keine Konvertierung." if self._rename_only() else "") +
                              online_message)
