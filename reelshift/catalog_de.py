@@ -97,6 +97,16 @@ VIKINGS_2013_GERMAN = {
     "Die Mutter von Norwegen",
     "Die Hälfte des Himmels",
     "Am Rande der Welt",
-    "Blutiger Strand"
+    "Blutiger Strand",
+    "Der Mann, der nicht sterben konnte",
+    "Der verwaiste Thron",
+    "Karfreitag in Kiew",
+    "Das leere Land",
+    "Der rettende Regen",
+    "Ivars Schatten",
+    "Der Königsmacher",
+    "Die Hexe",
+    "Der Mann im Wald",
+    "Die Neue Welt"
   ]
 }
