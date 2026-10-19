@@ -20,6 +20,7 @@ from .workers import EncodeWorker, RenameWorker, ScanWorker
 
 STYLE = """
 QWidget { background: #10151f; color: #e7edf7; font-family: 'Segoe UI'; font-size: 10pt; }
+QLabel, QCheckBox { background: transparent; }
 QGroupBox { border: 1px solid #283446; border-radius: 9px; margin-top: 11px;
             padding: 11px 8px 7px; font-weight: 600; background: #171f2d; }
 QGroupBox::title { subcontrol-origin: margin; left: 14px; padding: 0 6px; color: #9cb9e9; }
@@ -37,11 +38,13 @@ QPushButton#danger { background: #5d303c; border-color: #9a4654; }
 QProgressBar { border: 1px solid #35455b; border-radius: 5px; text-align: center;
                background: #0c121b; min-height: 14px; }
 QProgressBar::chunk { background: #397de8; border-radius: 4px; }
-QHeaderView::section { background: #213044; padding: 7px; color: #cbd8f2; border: 0; }
+QHeaderView::section { background: #213044; padding: 7px; color: #cbd8f2; border: 0; border-right: 1px solid #36475d; }
+QHeaderView::section:hover { background: #354b68; }
 QTableWidget { gridline-color: #233044; alternate-background-color: #171e29; }
 QTableWidget::item { padding: 3px; }
 QCheckBox { spacing: 8px; }
-QSplitter::handle { background: #26384b; height: 5px; }
+QSplitter::handle { background: #344c65; height: 7px; }
+QSplitter::handle:hover { background: #5b92e8; }
 """
 
 
@@ -49,7 +52,7 @@ class ReelShiftWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("ReelShift — Transcode · Rename · Organize")
-        self.resize(1420, 910)
+        self.resize(1420, 960)
         self.setMinimumSize(1080, 720)
         asset_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
         app_icon = asset_root / "assets" / "reelshift.ico"
