@@ -13,6 +13,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from .catalog_de import VIKINGS_2013_GERMAN
+
 API = "https://de.wikipedia.org/w/api.php"
 USER_AGENT = "ReelShift/0.4 (https://github.com/jay-daniels/reelshift)"
 SEASON = re.compile(r"\bStaffel\s+(\d{1,2})\b", re.I)
@@ -157,6 +159,15 @@ class WikipediaGermanLookup:
 
     def find(self, series: str, season: int, episode: int) -> tuple[str, str] | None:
         key = series.casefold()
+        # Reliable offline data for the exact show in the initial ReelShift use-case.
+        # These are the 2013 drama titles; the 2012 documentary/Valhalla are distinct.
+        if key == "vikings":
+            names = VIKINGS_2013_GERMAN.get(str(season), [])
+            if 1 <= episode <= len(names):
+                self.last_error = ""
+                self.last_page = "Vikings (Fernsehserie)/Episodenliste"
+                return names[episode - 1], "Wikipedia DE (Offline-Katalog)"
+
         if key not in self.series_cache:
             self.last_error = ""
             variants = [
