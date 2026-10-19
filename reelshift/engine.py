@@ -184,6 +184,83 @@ def av_sync_report(before: AVSyncInfo, after: AVSyncInfo,
     return True, "; ".join(lines) if lines else "Keine Tonspur: nur Video validiert"
 
 
+
+@dataclass(frozen=True)
+class DecodeStartInfo:
+    """Actual first decoded video FRAME and first audio PACKET timestamps.
+
+    Stream metadata start_time can be equal even when the first decodable
+    video frame appears 60 seconds after the first audio packet.
+    """
+    video_frame: float | None
+    video_keyframe: bool
+    audio_packet: float | None
+
+    @property
+    def video_audio_gap(self) -> float | None:
+        if self.video_frame is None or self.audio_packet is None:
+            return None
+        return self.video_frame - self.audio_packet
+
+
+def probe_decode_start(path: Path, ffprobe: str) -> DecodeStartInfo:
+    """Inspect initial decoded frames and packet PTS (bounded to first packets).
+
+    The video call actually decodes its initial packets, so this finds when a
+    playable frame first becomes available rather than trusting stream headers.
+    """
+    base = [ffprobe, "-v", "error", "-read_intervals", "0%+#64"]
+
+    def probe(extra: list[str]) -> dict:
+        run = subprocess.run(base + extra + ["-of", "json", str(path)],
+                             capture_output=True, text=True, errors="replace",
+                             timeout=75, creationflags=popen_flags())
+        if run.returncode:
+            raise RuntimeError("FFprobe-Startprüfung fehlgeschlagen: " + run.stderr.strip()[:300])
+        try:
+            return json.loads(run.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("FFprobe lieferte ungültige Startdaten") from exc
+
+    frames = probe(["-select_streams", "v:0", "-show_frames",
+                    "-show_entries", "frame=best_effort_timestamp_time,key_frame"]).get("frames", [])
+    first_frame = next((f for f in frames if f.get("best_effort_timestamp_time") not in (None, "N/A")), None)
+    first_pts = float(first_frame["best_effort_timestamp_time"]) if first_frame else None
+    first_keyframe = bool(first_frame and first_frame.get("key_frame") == 1)
+
+    packets = probe(["-select_streams", "a:0", "-show_packets",
+                     "-show_entries", "packet=pts_time"]).get("packets", [])
+    first_packet = next((p for p in packets if p.get("pts_time") not in (None, "N/A")), None)
+    audio_pts = float(first_packet["pts_time"]) if first_packet else None
+    return DecodeStartInfo(first_pts, first_keyframe, audio_pts)
+
+
+def validate_decode_start(original: DecodeStartInfo, output: DecodeStartInfo,
+                          max_change_seconds: float = 0.35) -> tuple[bool, str]:
+    """Reject delayed/unplayable startup even if stream start_time matches.
+
+    This is a structural smoke test, not a substitute for a real VLC playback
+    check or for inspecting the original and converted media side by side.
+    """
+    if output.video_frame is None:
+        return False, "Ausgabe: In den ersten 64 Videopaketen kein decodierbares Bild"
+    if not output.video_keyframe:
+        return False, "Ausgabe beginnt nicht mit einem decodierbaren Keyframe"
+    if original.video_frame is None:
+        return False, "Quelle: Kein decodierbares Bild in den ersten 64 Videopaketen"
+    if original.video_audio_gap is None or output.video_audio_gap is None:
+        return False, "Audio/Video-Start nicht vergleichbar (fehlende Audio-Paketzeitstempel)"
+    initial = original.video_audio_gap
+    actual = output.video_audio_gap
+    change = actual - initial
+    report = (f"Erstes decodierbares Bild minus erstes Audiopaket: "
+              f"Quelle {initial:+.3f}s; Ausgabe {actual:+.3f}s; "
+              f"Abweichung {change:+.3f}s")
+    if abs(change) > max_change_seconds:
+        return False, report + " – Videostart hat sich unzulässig verschoben"
+    return True, report
+
+
 def rename_conflicts(items: list[VideoItem]) -> list[str]:
     """Reject in-place collisions without touching the input MKVs."""
     issues: list[str] = []
