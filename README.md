@@ -82,6 +82,18 @@ Online lookup sends only the recognized series name, season and episode to the e
 
 > Online matches are heuristic. Review them before starting, especially remakes, DVD-order episodes, specials and shows with duplicate names. TMDb may also return original-language titles if no German translation exists.
 
+### Warum fehlen manchmal Episodentitel?
+
+Im Rename-Modus ist **kein FFmpeg** und für den kostenlosen **TVmaze-Katalog kein API-Key** erforderlich. Bei `Vikings.S02E01.German.AC3.DL.1080p.BluRay.x265.mkv` sollte nach erfolgreicher Online-Abfrage zum Beispiel ein englischer Titel ergänzt werden.
+
+ReelShift lädt dafür zuerst den passenden TVmaze-Serieneintrag und anschließend dessen vollständige Episodenliste. Es verwendet das im Dateinamen erkannte Schema `S02E01` (üblicherweise die TV-Ausstrahlungsreihenfolge, nicht zwangsläufig eine DVD-Sonderreihenfolge).
+
+Wenn die Abfrage fehlschlägt oder kein passender Eintrag vorhanden ist, zeigt die **Status-/Metadaten-Spalte** jetzt eine Diagnose wie `TVmaze: Netzwerk-/DNS-/TLS-Fehler oder Zeitüberschreitung`, `TVmaze: HTTP 429` oder `Kein passender Episodentitel gefunden`. Auch das Protokoll weist darauf hin. Der bisherige Code verschluckte diese Fehler. Die Fehlermeldungen enthalten keinen API-Key.
+
+**Deutsch:** TVmaze hat überwiegend Originaltitel. Für bevorzugt deutsche Episodentitel kannst du kostenlos auf https://www.themoviedb.org/settings/api einen persönlichen TMDb-Key beantragen und diesen optional im GUI-Feld eintragen. Ohne Key bleibt die TVmaze-Abfrage nutzbar. TMDb-Episodentitel stehen nicht immer auf Deutsch bereit.
+
+Bei Fragen bitte zuerst `git pull` und anschließend `.\build-local.cmd` ausführen, dann erneut scannen und gegebenenfalls die ONLINE-Meldung aus dem Protokoll teilen.
+
 ## Compatibility and limitations
 
 - The **Fire TV Stick model and playback app** determine supported codecs, audio and subtitles. H.264 alone is no universal guarantee. MKV playback depends on the app, and some Fire TV players cannot decode DTS, TrueHD or PGS subtitles. Enable AAC stereo if your player cannot handle the source audio; this changes surround tracks to stereo. Subtitle streams are copied, not converted into text subtitles.
