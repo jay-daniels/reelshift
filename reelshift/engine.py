@@ -246,10 +246,12 @@ def validate_decode_start(original: DecodeStartInfo, output: DecodeStartInfo,
     """
     if output.video_frame is None:
         return False, "Ausgabe: In den ersten 64 Videopaketen kein decodierbares Bild"
-    if not output.video_keyframe:
+    if original.video_keyframe and not output.video_keyframe:
         return False, "Ausgabe beginnt nicht mit einem decodierbaren Keyframe"
     if original.video_frame is None:
         return False, "Quelle: Kein decodierbares Bild in den ersten 64 Videopaketen"
+    if original.audio_packet is None and output.audio_packet is None:
+        return True, "Keine Audiospur vorhanden: Videoframe erfolgreich decodierbar"
     if original.video_audio_gap is None or output.video_audio_gap is None:
         return False, "Audio/Video-Start nicht vergleichbar (fehlende Audio-Paketzeitstempel)"
     initial = original.video_audio_gap
