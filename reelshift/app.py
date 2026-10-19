@@ -135,28 +135,28 @@ class ReelShiftWindow(QMainWindow):
         opts.addWidget(self.lookup, 3, 0, 1, 2)
 
         self.title_language = QComboBox()
-        self.title_language.addItem("Deutsch (TMDb-Key erforderlich)", "de")
+        self.title_language.addItem("Deutsch (Wikipedia, ohne Key)", "de")
         self.title_language.addItem("Englisch (TVmaze, ohne Key)", "en")
         self.title_language.setToolTip(
-            "Deutsch: TMDb de-DE (übersetzte Titel, falls vorhanden). "
-            "Englisch: kostenloser TVmaze-Katalog ohne Schlüssel. "
-            "Keine stille Übersetzung oder Sprachmischung.")
+            "Deutsch: Wikipedia-Episodenlisten, für Vikings auch offline. "
+            "Englisch: kostenloser TVmaze-Katalog. "
+            "Beide Quellen ohne Konto und ohne API-Key.")
         opts.addWidget(QLabel("Titelsprache"), 3, 2)
         opts.addWidget(self.title_language, 3, 3)
 
-        opts.addWidget(QLabel("TMDb-API-Key"), 4, 0)
+        opts.addWidget(QLabel("TMDb (freiwillig)"), 4, 0)
         self.token = QLineEdit(os.environ.get("TMDB_READ_ACCESS_TOKEN") or
                                os.environ.get("TMDB_API_KEY", ""))
         self.token.setEchoMode(QLineEdit.EchoMode.Password)
-        self.token.setPlaceholderText("Für Deutsch: API-Key oder Read Access Token eintragen")
+        self.token.setPlaceholderText("Optionaler TMDb-Key als Ersatzquelle – nicht erforderlich")
         self.token.setToolTip(
-            "TMDb de-DE: persönlicher kostenloser API-Zugang. "
+            "Nur falls Wikipedia keine Titel bietet. Ohne Schlüssel funktioniert Deutsch ebenfalls. "
             "Token wird nicht in den Programmeinstellungen gespeichert.")
         opts.addWidget(self.token, 4, 1, 1, 2)
-        self.tmdb_link = QPushButton("API-Key anfordern ↗")
-        self.tmdb_link.setToolTip("TMDb-Kontoeinstellungen im Browser öffnen")
+        self.tmdb_link = QPushButton("Wikipedia-Episoden ↗")
+        self.tmdb_link.setToolTip("Deutsche Vikings-Episodenliste auf Wikipedia öffnen")
         self.tmdb_link.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://www.themoviedb.org/settings/api")))
+            lambda: QDesktopServices.openUrl(QUrl("https://de.wikipedia.org/wiki/Vikings_(Fernsehserie)/Episodenliste")))
         opts.addWidget(self.tmdb_link, 4, 3)
 
         opts.addWidget(QLabel("FFmpeg (optional)"), 5, 0)
@@ -398,13 +398,6 @@ class ReelShiftWindow(QMainWindow):
         self.scanning = True
         self._set_busy()
         self.log_box.appendPlainText("Scan gestartet …")
-        if (self.lookup.isChecked() and self.title_language.currentData() == "de"
-                and not self.token.text().strip()):
-            self.log_box.appendPlainText(
-                "ONLINE: Deutsch ausgewählt, aber TMDb-API-Key fehlt. "
-                "Für deutsche Episodentitel einen Key eintragen "
-                "(Schaltfläche 'API-Key anfordern'). "
-                "Es werden KEINE englischen Titel automatisch eingesetzt.")
         self.scan_thread = QThread(self)
         self.scan_worker = ScanWorker(src, dst, self.pattern.text(), self.recursive.isChecked(),
                                       self.lookup.isChecked(), self.token.text(), self.ffmpeg_path.text().strip(),
@@ -462,7 +455,7 @@ class ReelShiftWindow(QMainWindow):
                 self.log_box.appendPlainText(
                     f"ONLINE: {untitled} Titel konnten nicht ergänzt werden. "
                     "Siehe Spalte 'Status / Metadaten' für den Grund. "
-                    "Deutsch: TMDb benötigt einen API-Key; Englisch: TVmaze ist kostenlos.")
+                    "Deutsch: Wikipedia kostenlos, TMDb optional. Englisch: TVmaze kostenlos.")
         self.summary.setText(f"{len(items)} MKVs gefunden, {valid} bereit. Namen prüfen!" +
                              (" Nur Umbenennung, keine Konvertierung." if self._rename_only() else "") +
                              online_message)
