@@ -123,8 +123,9 @@ class ReelShiftWindow(QMainWindow):
         self.force = QCheckBox("Auch kompatibles H.264 neu codieren")
         opts.addWidget(self.aac, 2, 0, 1, 2)
         opts.addWidget(self.force, 2, 2, 1, 2)
-        self.lookup = QCheckBox("Fehlende Episodentitel online ergänzen")
+        self.lookup = QCheckBox("Fehlende Episodentitel online ergänzen (TVmaze: ohne Key)")
         self.lookup.setChecked(True)
+        self.lookup.setToolTip("Kostenloses TVmaze ohne API-Key: meist englische Titel. Mit TMDb-Key bevorzugt deutsche Titel.")
         opts.addWidget(self.lookup, 3, 0, 1, 2)
         self.token = QLineEdit(os.environ.get("TMDB_READ_ACCESS_TOKEN") or os.environ.get("TMDB_API_KEY", ""))
         self.token.setEchoMode(QLineEdit.EchoMode.Password)
@@ -324,6 +325,7 @@ class ReelShiftWindow(QMainWindow):
         self.scan_worker.moveToThread(self.scan_thread)
         self.scan_thread.started.connect(self.scan_worker.run)
         self.scan_worker.progress.connect(self._scan_progress)
+        self.scan_worker.notice.connect(self.log_box.appendPlainText)
         self.scan_worker.complete.connect(self._scan_complete)
         self.scan_worker.error.connect(self._scan_error)
         self.scan_worker.finished.connect(self.scan_thread.quit)
@@ -354,8 +356,24 @@ class ReelShiftWindow(QMainWindow):
             self.table.setCellWidget(row, 4, bar)
         self.table.blockSignals(False)
         valid = sum(not x.status.startswith("Fehler") for x in items)
+        titled = sum(bool(item.parsed and item.parsed.title) or
+                    "TVmaze" in item.note or "TMDb" in item.note
+                    for item in items if not item.status.startswith("Fehler"))
+        untitled = sum(item.parsed is not None and item.parsed.season is not None
+                      and not item.parsed.title and
+                      "TVmaze" not in item.note and "TMDb" not in item.note
+                      for item in items if not item.status.startswith("Fehler"))
+        online_message = ""
+        if self.lookup.isChecked():
+            online_message = f" Online-Titel: {titled}, nicht ergänzt: {untitled}."
+            if untitled:
+                self.log_box.appendPlainText(
+                    f"ONLINE: {untitled} Titel konnten nicht ergänzt werden. "
+                    "Siehe Spalte 'Status / Metadaten' für den Grund. "
+                    "TVmaze braucht keinen API-Key, TMDb für deutsche Titel schon.")
         self.summary.setText(f"{len(items)} MKVs gefunden, {valid} bereit. Namen prüfen!" +
-                             (" Nur Umbenennung, keine Konvertierung." if self._rename_only() else ""))
+                             (" Nur Umbenennung, keine Konvertierung." if self._rename_only() else "") +
+                             online_message)
         self.log_box.appendPlainText(f"Scan beendet: {valid}/{len(items)} Dateien bereit.")
         # Keep the scan locked until its QThread has actually stopped.
 
