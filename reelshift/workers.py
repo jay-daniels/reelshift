@@ -24,12 +24,14 @@ class ScanWorker(QObject):
     finished = Signal()
 
     def __init__(self, folder: Path, destination: Path, pattern: str, recursive: bool,
-                 online: bool, tmdb_token: str, ffmpeg_override: str, rename_only: bool = False) -> None:
+                 online: bool, tmdb_token: str, ffmpeg_override: str, rename_only: bool = False,
+                 title_language: str = "en") -> None:
         super().__init__()
         self.folder, self.destination = folder, destination
         self.pattern, self.recursive = pattern, recursive
         self.online, self.tmdb_token, self.ffmpeg_override = online, tmdb_token, ffmpeg_override
         self.rename_only = rename_only
+        self.title_language = title_language
 
     @Slot()
     def run(self) -> None:
@@ -41,7 +43,8 @@ class ScanWorker(QObject):
             ffprobe = executable("ffprobe", self.ffmpeg_override) if not self.rename_only else ""
             files = scan_paths(self.folder, self.pattern, self.recursive,
                                None if self.rename_only else self.destination)
-            resolver = EpisodeLookup(self.tmdb_token)
+            resolver = EpisodeLookup(self.tmdb_token, language=self.title_language)
+            reported: set[str] = set()
             items: list[VideoItem] = []
             for i, path in enumerate(files, 1):
                 self.progress.emit(i, len(files), path.name)
@@ -60,7 +63,10 @@ class ScanWorker(QObject):
                         elif resolver.last_diagnostic:
                             detail = "Episodensuche: " + resolver.last_diagnostic
                             item.note = (item.note + " | " if item.note else "") + detail
-                            if not any(existing.note == item.note for existing in items):
+                            # A missing key or network error applies to the whole scan;
+                            # log it once rather than repeating it for every episode.
+                            if resolver.last_diagnostic not in reported:
+                                reported.add(resolver.last_diagnostic)
                                 self.notice.emit(f"ONLINE {item.parsed.series}: {resolver.last_diagnostic}")
                     items.append(item)
                 except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
