@@ -27,19 +27,32 @@ def _normalize(name: str) -> str:
 
 
 def _best(query: str, candidates: list[tuple[str, int]]) -> int | None:
-    if not candidates:
-        return None
-    ranked = sorted(((SequenceMatcher(None, _normalize(query), _normalize(name)).ratio(), ident)
-                     for name, ident in candidates), reverse=True)
-    return ranked[0][1] if ranked[0][0] >= .76 else None
+    """Preserve provider ranking when multiple shows have the SAME name.
+
+    IMPORTANT: TVmaze returns both Vikings (2013, #29) and Vikings (2012,
+    documentary, #1335). Sorting (similarity, numeric ID) previously picked
+    #1335, for which season 2 of the drama cannot exist.
+    """
+    winner: int | None = None
+    best_score = 0.76
+    for name, ident in candidates:
+        score = SequenceMatcher(None, _normalize(query), _normalize(name)).ratio()
+        if score >= best_score and (winner is None or score > best_score):
+            winner, best_score = ident, score
+    return winner
 
 
 class EpisodeLookup:
-    def __init__(self, tmdb_token: str = "") -> None:
+    def __init__(self, tmdb_token: str = "", language: str = "en") -> None:
+        if language not in ("de", "en"):
+            raise ValueError("Nicht unterstützte Titelsprache: " + language)
+        self.language = language
         self.tmdb_token = tmdb_token.strip()
         self.cache: dict[tuple[str, int, int], tuple[str, str] | None] = {}
         self.tvmaze_shows: dict[str, int | None] = {}
         self.tmdb_shows: dict[str, int | None] = {}
+        self.tmdb_seasons: dict[tuple[int, int], dict[int, str]] = {}
+        self.chosen_series: dict[str, str] = {}
         # TVmaze returns a whole show's episode list in one API request,
         # avoiding repeated HTTP calls and rate limiting for season batches.
         self.tvmaze_episode_lists: dict[int, dict[tuple[int, int], str]] = {}
@@ -68,32 +81,47 @@ class EpisodeLookup:
         if key in self.cache:
             self.last_diagnostic = self.diagnostics.get(key, "")
             return self.cache[key]
-        errors: list[str] = []
+
+        if self.language == "de" and not self.tmdb_token:
+            self.last_diagnostic = (
+                "Deutsch: TMDb-API-Key fehlt. Einen kostenlosen Schlüssel unter "
+                "themoviedb.org/settings/api erstellen oder Titelsprache Englisch wählen."
+            )
+            self.cache[key] = None
+            self.diagnostics[key] = self.last_diagnostic
+            return None
+
         result = None
-        if self.tmdb_token:
+        error = ""
+        if self.language == "de":
             if self.tmdb_error:
-                errors.append(self.tmdb_error)
+                error = self.tmdb_error
             else:
                 try:
                     result = self._tmdb(series, season, episode)
                 except (HTTPError, URLError, TimeoutError, ValueError, KeyError, TypeError) as exc:
                     self.tmdb_error = self._error_message("TMDb", exc)
-                    errors.append(self.tmdb_error)
-        if not result:
+                    error = self.tmdb_error
+        else:
             if self.tvmaze_error:
-                errors.append(self.tvmaze_error)
+                error = self.tvmaze_error
             else:
                 try:
                     result = self._tvmaze(series, season, episode)
                 except (HTTPError, URLError, TimeoutError, ValueError, KeyError, TypeError) as exc:
                     self.tvmaze_error = self._error_message("TVmaze", exc)
-                    errors.append(self.tvmaze_error)
+                    error = self.tvmaze_error
+
         if result:
             self.last_diagnostic = ""
-        elif errors:
-            self.last_diagnostic = " | ".join(errors)
+        elif error:
+            self.last_diagnostic = error
         else:
-            self.last_diagnostic = f"Kein passender Episodentitel gefunden ({series} S{season:02d}E{episode:02d})"
+            match_note = self.chosen_series.get(series, "Serie nicht eindeutig erkannt")
+            self.last_diagnostic = (
+                f"Kein passender Episodentitel ({series} S{season:02d}E{episode:02d}; "
+                f"Treffer: {match_note})"
+            )
         self.diagnostics[key] = self.last_diagnostic
         self.cache[key] = result
         return result
@@ -101,21 +129,35 @@ class EpisodeLookup:
     def _tmdb(self, series: str, season: int, episode: int) -> tuple[str, str] | None:
         base = "https://api.themoviedb.org/3"
         if series not in self.tmdb_shows:
-            shows = _get(base + "/search/tv", {"query": series, "language": "de-DE"}, self.tmdb_token)
-            self.tmdb_shows[series] = _best(series, [
-                (entry.get("name") or entry.get("original_name") or "", entry["id"])
+            shows = _get(base + "/search/tv", {"query": series, "language": "de-DE"},
+                         self.tmdb_token)
+            matches = [
+                ((entry.get("name") or entry.get("original_name") or ""), entry["id"])
                 for entry in shows.get("results", [])[:12]
-            ])
+            ]
+            self.tmdb_shows[series] = _best(series, matches)
+            self.chosen_series[series] = (
+                f"TMDb #{self.tmdb_shows[series]}" if self.tmdb_shows[series] else
+                "keine passende TMDb-Serie"
+            )
         show_id = self.tmdb_shows[series]
         if show_id is None:
             return None
-        entry = _get(f"{base}/tv/{show_id}/season/{season}/episode/{episode}",
-                     {"language": "de-DE"}, self.tmdb_token)
-        title = (entry.get("name") or "").strip()
-        # TMDb sometimes returns generic placeholders or original-language titles.
-        if title and not re.fullmatch(r"(?i)episode\s+\d+|folge\s+\d+", title):
-            return title, "TMDb (de-DE, sofern verfügbar)"
-        return None
+        season_key = (show_id, season)
+        if season_key not in self.tmdb_seasons:
+            # A whole season in one request, instead of a separate request per episode.
+            data = _get(f"{base}/tv/{show_id}/season/{season}",
+                        {"language": "de-DE"}, self.tmdb_token)
+            self.tmdb_seasons[season_key] = {
+                int(entry["episode_number"]): entry["name"].strip()
+                for entry in data.get("episodes", [])
+                if isinstance(entry.get("episode_number"), int)
+                and isinstance(entry.get("name"), str)
+                and entry["name"].strip()
+                and not re.fullmatch(r"(?i)(?:episode|folge)\s+\d+", entry["name"].strip())
+            }
+        title = self.tmdb_seasons[season_key].get(episode)
+        return (title, "TMDb (de-DE, sofern übersetzt)") if title else None
 
     def _tvmaze(self, series: str, season: int, episode: int) -> tuple[str, str] | None:
         base = "https://api.tvmaze.com"
@@ -125,6 +167,13 @@ class EpisodeLookup:
                 (entry["show"].get("name", ""), entry["show"]["id"])
                 for entry in matches[:10]
             ])
+            show_id = self.tvmaze_shows[series]
+            winning = next((entry["show"] for entry in matches[:10]
+                            if entry["show"]["id"] == show_id), None)
+            self.chosen_series[series] = (
+                f"{winning.get('name')} ({str(winning.get('premiered') or '?')[:4]}), TVmaze #{show_id}"
+                if winning else "keine passende TVmaze-Serie"
+            )
         show_id = self.tvmaze_shows[series]
         if show_id is None:
             return None
