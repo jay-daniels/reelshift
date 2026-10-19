@@ -11,7 +11,7 @@ from pathlib import Path
 import psutil
 from PySide6.QtCore import QObject, Signal, Slot
 
-from .engine import VideoItem, executable, ffmpeg_command, ffmpeg_seconds, inspect_video, popen_flags, scan_paths, probe_av_sync, av_sync_report
+from .engine import VideoItem, executable, ffmpeg_command, ffmpeg_seconds, inspect_video, popen_flags, scan_paths, probe_av_sync, av_sync_report, probe_decode_start, validate_decode_start
 from .metadata import EpisodeLookup
 from .naming import output_name
 
@@ -187,6 +187,14 @@ class EncodeWorker(QObject):
                     if any(v is not None and abs(v) > 0.25 for v in original_sync.audio_video_deltas):
                         self.log.emit("HINWEIS: Die Quelle hat bereits einen Audio/Video-Startversatz. "
                                       "ReelShift korrigiert den Ton nicht blind.")
+                    # Metadata start_time alone is insufficient. The first
+                    # actual decoded video frame might be a minute late.
+                    source_start = probe_decode_start(item.source, ffprobe)
+                    output_start = probe_decode_start(temp, ffprobe)
+                    startup_ok, startup_details = validate_decode_start(source_start, output_start)
+                    self.log.emit("STARTUP " + item.source.name + ": " + startup_details)
+                    if not startup_ok:
+                        raise RuntimeError("Videostart-Prüfung fehlgeschlagen: " + startup_details)
                     # Windows rename never replaces an existing destination; guard again.
                     if target.exists():
                         raise FileExistsError("Zieldatei wurde während der Konvertierung erstellt")
