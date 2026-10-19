@@ -59,7 +59,7 @@ try {
     Run-Python @('-c', 'import sys; assert sys.version_info >= (3,10), "Python 3.10 oder neuer ist erforderlich"; print(sys.version)')
 
     Write-Host '[2/4] Projekt und PyInstaller installieren/aktualisieren ...' -ForegroundColor Cyan
-    Run-Python @('-m', 'pip', 'install', '--disable-pip-version-check', '-e', '.', 'pyinstaller>=6,<7')
+    Run-Python @('-m', 'pip', 'install', '--disable-pip-version-check', '-e', '.', 'pyinstaller>=6,<7', 'pillow>=11,<13')
 
     if (-not $SkipTests) {
         Write-Host '[3/4] Unit-Tests ...' -ForegroundColor Cyan
@@ -68,9 +68,15 @@ try {
         Write-Host '[3/4] Tests uebersprungen (-SkipTests)' -ForegroundColor Yellow
     }
 
-    Write-Host '[4/4] Erstelle ReelShift.exe ...' -ForegroundColor Cyan
+    Write-Host '[4/4] Icon erzeugen und ReelShift.exe bauen ...' -ForegroundColor Cyan
+    Run-Python @((Join-Path $root 'tools\make_icon.py'))
+    $iconPath = Join-Path $root 'assets\reelshift.ico'
+    if (-not (Test-Path -LiteralPath $iconPath)) { throw 'App-Icon konnte nicht erstellt werden.' }
+    $iconBundle = "$($iconPath);assets"
     $pyInstallerArgs = @('-m', 'PyInstaller', '--noconfirm', '--onefile', '--windowed',
               '--name', 'ReelShift',
+              '--icon', $iconPath,
+              '--add-data', $iconBundle,
               '--distpath', (Join-Path $root 'dist'),
               '--workpath', (Join-Path $root 'build\pyinstaller'),
               '--specpath', (Join-Path $root 'build'),
