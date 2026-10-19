@@ -1,4 +1,4 @@
-"""Language-aware episode titles: German via TMDb, English via TVmaze."""
+"""Language-aware episode titles: German via Wikipedia (TMDb optional), English via TVmaze."""
 from __future__ import annotations
 
 import json
