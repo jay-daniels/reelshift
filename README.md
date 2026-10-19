@@ -98,3 +98,32 @@ python -m unittest discover -s tests -v
 ```
 
 Built with Python, PySide6, FFmpeg/FFprobe, psutil, and TVmaze/TMDb web APIs.
+
+
+## Ton läuft, Video kommt erst deutlich später (VLC/Fire TV)
+
+Eine MKV kann normale FFprobe-Stream-Startzeitstempel besitzen, obwohl der
+erste tatsächlich decodierbare Videoframe erst 60 Sekunden nach dem ersten
+Audiopaket erscheint. Die alte Prüfung übersah diese Fälle. ReelShift
+vergleicht nun zusätzlich die **PTS des ersten decodierbaren Videobilds**
+mit dem **PTS des ersten Audiopakets**, jeweils für Quelle und Ergebnis.
+Ändert sich dieser Abstand um mehr als 350 ms, wird die temporäre Datei
+nicht als erfolgreiches Endergebnis veröffentlicht.
+
+Diese Prüfung **verhindert eine unerkannte Freigabe** auffälliger Dateien;
+sie behebt nicht zwangsläufig die zugrundeliegende FFmpeg-/Encoder-Ursache,
+garantiert keine lippensynchrone Wiedergabe und repariert keine alten Dateien.
+Bewahre die Originale auf und teste erst eine Folge, bevor du einen Batch startest.
+
+Bereits konvertierte Folge ohne Änderung der MKV-Dateien vergleichen
+(im Repository-Ordner; die Pfade durch deine tatsächlichen Dateipfade ersetzen):
+
+```powershell
+.\.venv\Scripts\python.exe -m reelshift.diagnose "D:\Videos\Original.mkv" "D:\Videos\Konvertiert.mkv" --save "reelshift-sync-report.txt"
+```
+
+Falls FFprobe nicht über den PATH gefunden wird, ergänze
+`--ffprobe "D:\Tools\ffmpeg\bin\ffprobe.exe"`.
+Der Bericht zeigt Stream-Metadaten und tatsächlich decodierbaren Videostart
+nebeneinander. Er enthält Dateipfade; diese gegebenenfalls vor dem Teilen entfernen.
+
