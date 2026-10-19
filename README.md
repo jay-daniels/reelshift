@@ -11,8 +11,9 @@ ReelShift turns HEVC/H.265 videos into H.264/AVC for older playback devices, cle
 - FFprobe inspects codecs/duration. Already compatible 8-bit H.264 can be remuxed without video quality loss; all runs produce separate MKV files.
 - FFmpeg `-progress`-based per-file and overall progress, speed and approximate remaining time; pause, resume and cancel.
 - Optional AAC stereo transcoding; otherwise original audio, subtitles, chapters and container attachments are kept when supported by FFmpeg.
-- Detects `S01E01` and `1x01`; removes release tags from names and looks up **missing** episode titles from free TVmaze (mostly English), or TMDb with your own key/token (German requested).
+- Detects `S01E01` and `1x01`; cleans release tags and fills **German episode names without any key** using Wikipedia, with an offline 89-episode Vikings (2013) catalog. English names use free TVmaze; TMDb is only an optional German fallback.
 - Originals are never deleted; existing target files are skipped, and output is first written to a temporary file.
+- Resizable/reorderable queue columns with persistent widths, an adjustable queue/log divider and a custom icon in the GUI and local Windows EXE.
 
 ### Example
 
@@ -68,7 +69,7 @@ ReelShift schreibt in einen **separaten Zielordner**. Die Originaldateien bleibe
 
 ### Nur umbenennen – ohne FFmpeg
 
-Im Feld **Arbeitsmodus** „Nur umbenennen (direkt im Quellordner)“ wählen, Quellordner und Wildcards einstellen und **Dateien scannen & Namen prüfen**. Die Vorschau lässt sich manuell anpassen; fehlende Episodentitel können weiterhin über TVmaze/TMDb ergänzt werden. Anschließend **Dateien umbenennen** klicken und die Rückfrage bestätigen.
+Im Feld **Arbeitsmodus** „Nur umbenennen (direkt im Quellordner)“ wählen, Quellordner und Wildcards einstellen und **Dateien scannen & Namen prüfen**. Die Vorschau lässt sich manuell anpassen; fehlende Episodentitel kommen auf Deutsch aus Wikipedia (ohne Key, für Vikings auch offline) und auf Englisch aus TVmaze. Anschließend **Dateien umbenennen** klicken und die Rückfrage bestätigen.
 
 - Es wird **keine** Mediendatei decodiert, konvertiert, remuxt, kopiert oder gelöscht: Nur der Dateiname **am Originalspeicherort** wird geändert.
 - Zielordner, Encoder und FFmpeg werden nicht gebraucht; sie sind in diesem Modus deaktiviert.
@@ -76,48 +77,35 @@ Im Feld **Arbeitsmodus** „Nur umbenennen (direkt im Quellordner)“ wählen, Q
 - Ursprüngliche Dateinamen werden dabei geändert, es gibt noch keine automatische Undo-Funktion. Bei wichtigen Namen zuerst eine Kopie der Dateiliste sichern.
 - Moduswechsel verwirft die alte Vorschau: nach dem Wechsel erneut scannen.
 
-## Episode data
+## Episodentitel ohne Registrierung
 
-Online lookup sends only the recognized series name, season and episode to the enabled metadata provider. Disable the checkbox for fully offline renaming. TVmaze requires no key and generally has original/English titles in English mode. For German mode, enter your personal [TMDb](https://www.themoviedb.org/settings/api) API v3 key or API Read Access Token in the masked field. Alternatively set `TMDB_API_KEY` / `TMDB_READ_ACCESS_TOKEN` in your environment. The key/token is **not persisted** in settings or logged.
+Bei **Titelsprache** stehen zwei kostenlose Optionen zur Verfügung:
 
-> Online matches are heuristic. Review them before starting, especially remakes, DVD-order episodes, specials and shows with duplicate names. TMDb may also return original-language titles if no German translation exists.
+- **Deutsch (Wikipedia, ohne Key)** — Voreinstellung. ReelShift nutzt die öffentlichen deutschen Wikipedia-Episodenlisten. Für die Originalserie **Vikings (2013)** ist ein überprüfter **Offline-Katalog aller 89 deutschen Episodentitel** enthalten. Für andere Serien sucht die Software zunächst deren Wikipedia-Episodenliste über die öffentliche MediaWiki-Schnittstelle. Das funktioniert nur, wenn es eine passend strukturierte deutsche Episodenliste gibt; es werden keine Übersetzungen erfunden.
+- **Englisch (TVmaze, ohne Key)** — TVmaze als kostenlose englische Episodenquelle. Gleichnamige Serien werden nicht mehr anhand der höchsten numerischen ID ausgewählt: Vikings (2013, ID 29) war zuvor mit einer gleichnamigen BBC-Dokumentation (ID 1335) verwechselt worden.
 
-### Sprache wählen und Vikings-Verwechslung verhindern
+Als **optionale Ersatzquelle** kann ein persönlicher TMDb-v3-Key/Read-Access-Token eingegeben werden. **Er ist für keine der Standardfunktionen nötig** und wird weder protokolliert noch in den Einstellungen gespeichert. Englisch benötigt nie einen TMDb-Key; im deutschen Modus wird TMDb nur probiert, wenn Wikipedia keinen Titel liefert.
 
-Der bisherige Bug war eine falsche Serienauswahl: TVmaze liefert
-**Vikings (Drama, 2013, ID 29)** sowie **Vikings (BBC-Dokumentation, 2012,
-ID 1335)** unter demselben Namen. ReelShift nahm bei identischem Text
-die höhere **ID 1335** statt des besser gerankten Treffers. Damit waren
-**Vikings S02E01 bis S02E10** nicht vorhanden. Die Reihenfolge der
-API-Ergebnisse entscheidet nun den Gleichstand; die Zuordnung ist mit
-einem Regressionstest abgedeckt.
+Beispiel:
 
-In der GUI gibt es unter **Titelsprache**:
+`Vikings.S02E01.German.AC3.DL.1080p.BluRay.x265-FuN.mkv`
+wird mit Deutsch als
+`Vikings - S02E01 - Bruderkrieg.mkv`
+vorgeschlagen, ohne Netzwerkanfrage oder Anmeldung.
 
-- **Deutsch (TMDb-Key erforderlich)** — Voreinstellung. TMDb liefert
-  Titel in `de-DE`, sofern Übersetzungen verfügbar sind. Benötigt einen
-  persönlichen API-v3-Key oder Read Access Token. In ReelShift auf
-  **„API-Key anfordern ↗“** klicken, im Browser registrieren/anmelden,
-  Schlüssel eintragen und **erneut scannen**. Der Schlüssel wird nicht in
-  Programmeinstellungen gespeichert.
-- **Englisch (TVmaze, ohne Key)** — TVmaze benötigt keinen API-Key und
-  liefert normalerweise die Originaltitel. Für Vikings S02E01 z.B.
-  `Vikings - S02E01 - Brother's War.mkv`.
+**Quellennachweis:** Deutscher Vikings-Katalog nach
+[Wikipedia – Vikings (Fernsehserie)/Episodenliste](https://de.wikipedia.org/wiki/Vikings_(Fernsehserie)/Episodenliste)
+(Stand 19. Oktober 2026; Wikipedia-Inhalte unter [CC BY-SA](https://creativecommons.org/licenses/by-sa/4.0/deed.de), siehe Artikel-/Versionsgeschichte).
+Das Programm kennzeichnet die vorgeschlagene Quelle in der Statusspalte.
 
-Beispiel für einen übersetzten Vorschlag mit TMDb:
-`Vikings - S02E01 - Bruderkrieg.mkv` (deutscher Episodentitel).
+## GUI: Spalten, Startlayout und Icon
 
-Falls **Deutsch** gewählt, aber kein TMDb-Key vorhanden ist, zeigt
-ReelShift ausdrücklich den fehlenden Schlüssel in Status und Protokoll.
-Englische Titel werden **nicht stillschweigend** als deutsche eingesetzt.
-Bei einer fehlenden Übersetzung kann TMDb möglicherweise den Originaltitel
-liefern; überprüfe die Namensvorschau vor dem Umbenennen.
-
-Auch beim Wechsel der Titelsprache oder beim Ändern des Schlüssels
-wird eine alte Vorschau verworfen, um versehentlich gemischte Ergebnisse
-zu vermeiden. Für alle zehn Episoden einer Staffel holt ReelShift eine
-vollständige **TMDb-Staffel** bzw. **TVmaze-Episodenliste** und hält sie für
-den laufenden Scan im Speicher; das vermeidet zehn Einzelanfragen.
+- Jede Spaltengrenze in der Kopfzeile kann mit der Maus gezogen werden.
+- Spalten lassen sich am Spaltenkopf in eine andere Reihenfolge ziehen.
+- Die Spaltenbreiten und ihre Reihenfolge werden über QSettings gespeichert.
+- Der Trenner zwischen Warteschlange und Protokoll ist vertikal verschiebbar; die Tabelle hat eine Mindesthöhe, damit beim Programmstart nicht nur eine Folge sichtbar bleibt.
+- Die Fenstergröße wird gespeichert; eine sinnvolle Erststartgröße ist konfiguriert.
+- `tools/make_icon.py` erzeugt mit Pillow die mehrstufige Windows-`.ico`-Datei `assets/reelshift.ico`. `build-local.cmd` übernimmt das automatisch und bündelt das Icon in der fertigen EXE. **Keine GitHub Actions.**
 
 ## Compatibility and limitations
 
@@ -134,7 +122,7 @@ den laufenden Scan im Speicher; das vermeidet zehn Einzelanfragen.
 python -m unittest discover -s tests -v
 ```
 
-Built with Python, PySide6, FFmpeg/FFprobe, psutil, and TVmaze/TMDb web APIs.
+Built with Python, PySide6, FFmpeg/FFprobe, psutil, Pillow (build-only), and the Wikipedia/TVmaze APIs (TMDb optional).
 
 
 ## Diagnostik: H.264-Profil oder Pixelformat fehlen
