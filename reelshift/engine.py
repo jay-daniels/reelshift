@@ -265,6 +265,89 @@ def validate_decode_start(original: DecodeStartInfo, output: DecodeStartInfo,
     return True, report
 
 
+
+@dataclass(frozen=True)
+class VideoCodecInfo:
+    codec: str
+    profile: str
+    pixel_format: str
+    width: int
+    height: int
+    level: int | None
+    extradata_size: int | None
+    probe_warnings: str
+
+    @property
+    def usable_h264(self) -> bool:
+        return (self.codec == "h264"
+                and self.profile.lower() in ("baseline", "constrained baseline", "main", "high")
+                and self.pixel_format == "yuv420p"
+                and self.width > 0 and self.height > 0)
+
+
+def probe_video_codec(path: Path, ffprobe: str) -> VideoCodecInfo:
+    """Keep FFprobe warnings and codec parameters; avoid silent empty profile/pix_fmt."""
+    cmd = [
+        ffprobe, "-hide_banner", "-v", "warning", "-select_streams", "v:0",
+        "-show_entries",
+        "stream=codec_name,profile,pix_fmt,width,height,level,extradata_size",
+        "-of", "json", str(path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+                            timeout=60, creationflags=popen_flags())
+    if result.returncode:
+        raise RuntimeError("Codecprüfung fehlgeschlagen: " + result.stderr[-900:])
+    try:
+        streams = json.loads(result.stdout).get("streams", [])
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Ungültige Codec-Diagnose von FFprobe") from exc
+    if not streams:
+        raise RuntimeError("Keine decodierbare Videospur in der Codecprüfung")
+    video = streams[0]
+    def number(field: str) -> int | None:
+        try:
+            return int(video[field])
+        except (KeyError, ValueError, TypeError):
+            return None
+    return VideoCodecInfo(
+        str(video.get("codec_name", "")),
+        str(video.get("profile") or ""),
+        str(video.get("pix_fmt") or ""),
+        number("width") or 0,
+        number("height") or 0,
+        number("level"),
+        number("extradata_size"),
+        result.stderr.strip()[-2000:],
+    )
+
+
+@dataclass(frozen=True)
+class DecodeSample:
+    frames: int
+    errors: str
+    returncode: int
+
+    @property
+    def passed(self) -> bool:
+        return self.returncode == 0 and self.frames > 0
+
+
+def decode_video_sample(path: Path, ffmpeg: str, seconds: int = 12) -> DecodeSample:
+    """Decode video using software for the first seconds (no media output)."""
+    cmd = [
+        ffmpeg, "-hide_banner", "-nostdin", "-v", "error",
+        "-xerror", "-i", str(path), "-map", "0:v:0", "-an", "-sn", "-dn",
+        "-t", str(seconds), "-progress", "pipe:1", "-f", "null", "-",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True,
+                            errors="replace", timeout=120,
+                            creationflags=popen_flags())
+    frames = [int(m.group(1)) for m in re.finditer(r"(?m)^frame=(\d+)\s*$",
+                                                    result.stdout)]
+    return DecodeSample(frames[-1] if frames else 0, result.stderr.strip()[-2000:],
+                        result.returncode)
+
+
 def rename_conflicts(items: list[VideoItem]) -> list[str]:
     """Reject in-place collisions without touching the input MKVs."""
     issues: list[str] = []
