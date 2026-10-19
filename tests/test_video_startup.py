@@ -30,6 +30,10 @@ class DecodeStartupTests(unittest.TestCase):
         self.assertFalse(validate_decode_start(DecodeStartInfo(0, True, 0),
                                                DecodeStartInfo(0, False, 0))[0])
 
+    def test_video_only_media_is_valid(self):
+        self.assertTrue(validate_decode_start(DecodeStartInfo(0, True, None),
+                                              DecodeStartInfo(0, True, None))[0])
+
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg not installed")
     def test_real_delayed_video_has_same_stream_start_time_but_bad_first_frame(self):
         with tempfile.TemporaryDirectory() as d:
