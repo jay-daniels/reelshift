@@ -78,21 +78,46 @@ Im Feld **Arbeitsmodus** „Nur umbenennen (direkt im Quellordner)“ wählen, Q
 
 ## Episode data
 
-Online lookup sends only the recognized series name, season and episode to the enabled metadata provider. Disable the checkbox for fully offline renaming. TVmaze requires no key and generally has original/English titles. For possible German episode titles, enter your personal [TMDb](https://www.themoviedb.org/settings/api) API v3 key or API Read Access Token in the masked field. Alternatively set `TMDB_API_KEY` / `TMDB_READ_ACCESS_TOKEN` in your environment. The key/token is **not persisted** in settings or logged.
+Online lookup sends only the recognized series name, season and episode to the enabled metadata provider. Disable the checkbox for fully offline renaming. TVmaze requires no key and generally has original/English titles in English mode. For German mode, enter your personal [TMDb](https://www.themoviedb.org/settings/api) API v3 key or API Read Access Token in the masked field. Alternatively set `TMDB_API_KEY` / `TMDB_READ_ACCESS_TOKEN` in your environment. The key/token is **not persisted** in settings or logged.
 
 > Online matches are heuristic. Review them before starting, especially remakes, DVD-order episodes, specials and shows with duplicate names. TMDb may also return original-language titles if no German translation exists.
 
-### Warum fehlen manchmal Episodentitel?
+### Sprache wählen und Vikings-Verwechslung verhindern
 
-Im Rename-Modus ist **kein FFmpeg** und für den kostenlosen **TVmaze-Katalog kein API-Key** erforderlich. Bei `Vikings.S02E01.German.AC3.DL.1080p.BluRay.x265.mkv` sollte nach erfolgreicher Online-Abfrage zum Beispiel ein englischer Titel ergänzt werden.
+Der bisherige Bug war eine falsche Serienauswahl: TVmaze liefert
+**Vikings (Drama, 2013, ID 29)** sowie **Vikings (BBC-Dokumentation, 2012,
+ID 1335)** unter demselben Namen. ReelShift nahm bei identischem Text
+die höhere **ID 1335** statt des besser gerankten Treffers. Damit waren
+**Vikings S02E01 bis S02E10** nicht vorhanden. Die Reihenfolge der
+API-Ergebnisse entscheidet nun den Gleichstand; die Zuordnung ist mit
+einem Regressionstest abgedeckt.
 
-ReelShift lädt dafür zuerst den passenden TVmaze-Serieneintrag und anschließend dessen vollständige Episodenliste. Es verwendet das im Dateinamen erkannte Schema `S02E01` (üblicherweise die TV-Ausstrahlungsreihenfolge, nicht zwangsläufig eine DVD-Sonderreihenfolge).
+In der GUI gibt es unter **Titelsprache**:
 
-Wenn die Abfrage fehlschlägt oder kein passender Eintrag vorhanden ist, zeigt die **Status-/Metadaten-Spalte** jetzt eine Diagnose wie `TVmaze: Netzwerk-/DNS-/TLS-Fehler oder Zeitüberschreitung`, `TVmaze: HTTP 429` oder `Kein passender Episodentitel gefunden`. Auch das Protokoll weist darauf hin. Der bisherige Code verschluckte diese Fehler. Die Fehlermeldungen enthalten keinen API-Key.
+- **Deutsch (TMDb-Key erforderlich)** — Voreinstellung. TMDb liefert
+  Titel in `de-DE`, sofern Übersetzungen verfügbar sind. Benötigt einen
+  persönlichen API-v3-Key oder Read Access Token. In ReelShift auf
+  **„API-Key anfordern ↗“** klicken, im Browser registrieren/anmelden,
+  Schlüssel eintragen und **erneut scannen**. Der Schlüssel wird nicht in
+  Programmeinstellungen gespeichert.
+- **Englisch (TVmaze, ohne Key)** — TVmaze benötigt keinen API-Key und
+  liefert normalerweise die Originaltitel. Für Vikings S02E01 z.B.
+  `Vikings - S02E01 - Brother's War.mkv`.
 
-**Deutsch:** TVmaze hat überwiegend Originaltitel. Für bevorzugt deutsche Episodentitel kannst du kostenlos auf https://www.themoviedb.org/settings/api einen persönlichen TMDb-Key beantragen und diesen optional im GUI-Feld eintragen. Ohne Key bleibt die TVmaze-Abfrage nutzbar. TMDb-Episodentitel stehen nicht immer auf Deutsch bereit.
+Beispiel für einen übersetzten Vorschlag mit TMDb:
+`Vikings - S02E01 - Bruderkrieg.mkv` (deutscher Episodentitel).
 
-Bei Fragen bitte zuerst `git pull` und anschließend `.\build-local.cmd` ausführen, dann erneut scannen und gegebenenfalls die ONLINE-Meldung aus dem Protokoll teilen.
+Falls **Deutsch** gewählt, aber kein TMDb-Key vorhanden ist, zeigt
+ReelShift ausdrücklich den fehlenden Schlüssel in Status und Protokoll.
+Englische Titel werden **nicht stillschweigend** als deutsche eingesetzt.
+Bei einer fehlenden Übersetzung kann TMDb möglicherweise den Originaltitel
+liefern; überprüfe die Namensvorschau vor dem Umbenennen.
+
+Auch beim Wechsel der Titelsprache oder beim Ändern des Schlüssels
+wird eine alte Vorschau verworfen, um versehentlich gemischte Ergebnisse
+zu vermeiden. Für alle zehn Episoden einer Staffel holt ReelShift eine
+vollständige **TMDb-Staffel** bzw. **TVmaze-Episodenliste** und hält sie für
+den laufenden Scan im Speicher; das vermeidet zehn Einzelanfragen.
 
 ## Compatibility and limitations
 
