@@ -112,6 +112,41 @@ python -m unittest discover -s tests -v
 Built with Python, PySide6, FFmpeg/FFprobe, psutil, and TVmaze/TMDb web APIs.
 
 
+## Diagnostik: H.264-Profil oder Pixelformat fehlen
+
+Wenn der Ton in VLC sofort startet, das Bild aber erst viel später erscheint,
+sind **normale Startzeitstempel allein kein Beweis für eine korrekte MKV**.
+Ein konkreter Diagnosebericht kann bei H.264 zwar `start_time=0` und einen
+Keyframe bei Sekunde 0 zeigen, aber trotzdem **leere Felder für `profile`
+und `pix_fmt`** enthalten. Das ist verdächtig, aber noch keine eindeutige
+Ursachendiagnose.
+
+Die neuere, nur lesende Diagnose zeigt zusätzlich die erkannten H.264-Parameter
+(Profil, Pixelformat, Bildgröße, Level, Codec-Extradata), FFprobe-Warnungen
+und einen **Software-Decodiertest der ersten 12 Sekunden** mit FFmpeg.
+Originale und Ausgabe werden nicht verändert.
+
+```powershell
+cd "C:\Users\danie\Documents\Code\Apps\reelshift"
+git pull
+.\.venv\Scripts\python.exe -m reelshift.diagnose `
+  "C:\Users\danie\Desktop\Vikings\Season1\Vikings - S01E01 - Initiationsriten.mkv" `
+  "C:\Users\danie\Desktop\Vikings\Season1_ReelShift\Vikings - S01E01 - Initiationsriten.mkv" `
+  --save "reelshift-sync-report.txt"
+```
+
+Der Diagnosebefehl braucht keinen EXE-Neubau. Zum Aktualisieren der GUI
+weiterhin `.\build-local.cmd` verwenden. Die Ausgabeprüfung des
+Konvertierungsmodus verwirft neuerdings temporäre Ergebnisse, bei denen
+FFprobe kein gültiges H.264-8-Bit-Format oder keine Bildgröße ermitteln kann
+oder die Software-Decodierung der ersten 12 Sekunden fehlschlägt.
+
+**Achtung:** Diese Prüfungen *finden* bestimmte Fehler, aber reparieren
+nicht die Ursache eines fehlerhaften H.264-Streams. Nach dem nächsten
+Diagnosebericht den konkreten Encoderfehler eingrenzen, bevor weitere
+ganze Staffeln konvertiert werden. Prüfe außerdem die VLC-Hardwaredecodierung,
+falls FFmpeg die Datei problemlos decodiert.
+
 ## Ton läuft, Video kommt erst deutlich später (VLC/Fire TV)
 
 Eine MKV kann normale FFprobe-Stream-Startzeitstempel besitzen, obwohl der
